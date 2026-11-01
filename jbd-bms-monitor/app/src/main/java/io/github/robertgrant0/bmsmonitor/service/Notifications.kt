@@ -1,0 +1,134 @@
+package io.github.robertgrant0.bmsmonitor.service
+
+import android.annotation.SuppressLint
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
+import io.github.robertgrant0.bmsmonitor.MainActivity
+import io.github.robertgrant0.bmsmonitor.Permissions
+import io.github.robertgrant0.bmsmonitor.R
+import io.github.robertgrant0.bmsmonitor.bms.Alarm
+import io.github.robertgrant0.bmsmonitor.bms.BatteryState
+import io.github.robertgrant0.bmsmonitor.bms.LinkState
+import io.github.robertgrant0.bmsmonitor.bms.Severity
+import java.util.Locale
+
+object Notifications {
+    const val CHANNEL_MONITOR = "monitor"
+    const val CHANNEL_ALARMS = "alarms"
+    const val ID_MONITOR = 1
+    private const val ID_ALARM_BASE = 100
+
+    fun createChannels(ctx: Context) {
+        val nm = ctx.getSystemService(NotificationManager::class.java) ?: return
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL_MONITOR, "Battery monitoring", NotificationManager.IMPORTANCE_LOW).apply {
+                description = "Shows that the batteries are being monitored"
+                setShowBadge(false)
+            },
+        )
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL_ALARMS, "Battery alarms", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "BMS protection events, low charge, temperature and connection alarms"
+                enableVibration(true)
+            },
+        )
+    }
+
+    private fun openAppIntent(ctx: Context): PendingIntent = PendingIntent.getActivity(
+        ctx,
+        0,
+        Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+    )
+
+    fun monitor(ctx: Context, batteries: List<BatteryState>, alarms: List<List<Alarm>>, now: Long): Notification {
+        val configured = batteries.filter { it.isConfigured }
+        val live = configured.filter { it.isLive(now) }
+        val alarmCount = alarms.sumOf { it.size }
+
+        val title = if (configured.isEmpty()) {
+            "No batteries set up"
+        } else {
+            configured.joinToString("  ·  ") { b ->
+                b.basic?.takeIf { b.isLive(now) }?.let { "${it.stateOfCharge}%" } ?: "--"
+            }
+        }
+        val totalAmps = live.sumOf { it.basic!!.current }
+        val totalWatts = live.sumOf { it.basic!!.power }
+        val summary = buildString {
+            append("${live.size}/${configured.size} connected")
+            if (live.isNotEmpty()) {
+                append(String.format(Locale.US, "  ·  %+.1f A  ·  %+.0f W", totalAmps, totalWatts))
+            }
+            if (alarmCount > 0) append("  ·  ⚠ $alarmCount alarm${if (alarmCount == 1) "" else "s"}")
+        }
+        val details = configured.joinToString("\n") { b ->
+            val d = b.basic
+            if (d != null && b.isLive(now)) {
+                String.format(
+                    Locale.US, "%s: %d%%  %.2f V  %+.2f A", b.name, d.stateOfCharge, d.totalVoltage, d.current,
+                )
+            } else {
+                "${b.name}: ${b.statusText.ifBlank { linkLabel(b.link) }}"
+            }
+        }
+
+        val stop = PendingIntent.getService(
+            ctx,
+            1,
+            Intent(ctx, BmsService::class.java).setAction(BmsService.ACTION_STOP),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+
+        return NotificationCompat.Builder(ctx, CHANNEL_MONITOR)
+            .setSmallIcon(R.drawable.ic_stat_battery)
+            .setContentTitle(title)
+            .setContentText(summary)
+            .setStyle(NotificationCompat.BigTextStyle().bigText("$summary\n$details"))
+            .setContentIntent(openAppIntent(ctx))
+            .addAction(0, "Stop monitoring", stop)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setShowWhen(false)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+            .build()
+    }
+
+    @SuppressLint("MissingPermission") // Checked with Permissions.canNotify.
+    fun postAlarm(ctx: Context, battery: BatteryState, active: List<Alarm>, fresh: List<Alarm>) {
+        if (!Permissions.canNotify(ctx)) return
+        val critical = fresh.any { it.severity == Severity.ALARM }
+        val notification = NotificationCompat.Builder(ctx, CHANNEL_ALARMS)
+            .setSmallIcon(R.drawable.ic_stat_battery)
+            .setContentTitle("${if (critical) "⚠ " else ""}${battery.name}: ${fresh.first().message}")
+            .setContentText(fresh.joinToString(", ") { it.message })
+            .setStyle(NotificationCompat.BigTextStyle().bigText(active.joinToString("\n") { "• ${it.message}" }))
+            .setContentIntent(openAppIntent(ctx))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setColor(if (critical) 0xFFE53935.toInt() else 0xFFFFA000.toInt())
+            .setAutoCancel(true)
+            .build()
+        try {
+            NotificationManagerCompat.from(ctx).notify(ID_ALARM_BASE + battery.slot, notification)
+        } catch (_: SecurityException) {
+        }
+    }
+
+    fun linkLabel(link: LinkState): String = when (link) {
+        LinkState.NOT_CONFIGURED -> "Not set up"
+        LinkState.STOPPED -> "Monitoring stopped"
+        LinkState.NO_PERMISSION -> "Bluetooth permission needed"
+        LinkState.BLUETOOTH_OFF -> "Bluetooth is off"
+        LinkState.CONNECTING -> "Connecting…"
+        LinkState.CONNECTED -> "Connected"
+        LinkState.DISCONNECTED -> "Reconnecting…"
+    }
+}

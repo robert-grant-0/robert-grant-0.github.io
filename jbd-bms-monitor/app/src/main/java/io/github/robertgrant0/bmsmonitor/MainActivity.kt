@@ -1,0 +1,311 @@
+package io.github.robertgrant0.bmsmonitor
+
+import android.annotation.SuppressLint
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothManager
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.os.Bundle
+import android.os.PowerManager
+import android.provider.Settings
+import android.view.WindowManager
+import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.robertgrant0.bmsmonitor.bms.Alarms
+import io.github.robertgrant0.bmsmonitor.data.AppSettings
+import io.github.robertgrant0.bmsmonitor.service.BmsService
+import io.github.robertgrant0.bmsmonitor.ui.Banner
+import io.github.robertgrant0.bmsmonitor.ui.BmsTheme
+import io.github.robertgrant0.bmsmonitor.ui.DetailScreen
+import io.github.robertgrant0.bmsmonitor.ui.HomeScreen
+import io.github.robertgrant0.bmsmonitor.ui.LocalStatusColors
+import io.github.robertgrant0.bmsmonitor.ui.ScanDialog
+import io.github.robertgrant0.bmsmonitor.ui.SettingsScreen
+import io.github.robertgrant0.bmsmonitor.ui.isDarkTheme
+import kotlinx.coroutines.delay
+
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+        )
+        val app = bmsApp
+        setContent {
+            val settings by app.settings.state.collectAsStateWithLifecycle()
+            val dark = isDarkTheme(settings.theme)
+            LaunchedEffect(dark) {
+                val style = if (dark) {
+                    SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+                } else {
+                    SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
+                }
+                enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
+            }
+            LaunchedEffect(settings.keepScreenOn) {
+                if (settings.keepScreenOn) {
+                    window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                } else {
+                    window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                }
+            }
+            BmsTheme(dark) {
+                AppRoot(app, settings)
+            }
+        }
+    }
+}
+
+private enum class Screen { HOME, DETAIL, SETTINGS }
+
+@Composable
+private fun AppRoot(app: BmsApp, settings: AppSettings) {
+    val context = LocalContext.current
+    val resumeTick = rememberResumeTick()
+
+    var hasPermissions by remember { mutableStateOf(Permissions.hasRequired(context)) }
+    LaunchedEffect(resumeTick) { hasPermissions = Permissions.hasRequired(context) }
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { hasPermissions = Permissions.hasRequired(context) }
+
+    if (!hasPermissions) {
+        PermissionScreen(
+            onGrant = { permissionLauncher.launch(Permissions.required + Permissions.optional) },
+            onOpenAppSettings = { openAppSettings(context) },
+        )
+        return
+    }
+
+    // Keep the background service in step with the "Keep batteries connected" setting.
+    LaunchedEffect(settings.monitoringEnabled) {
+        if (settings.monitoringEnabled) BmsService.start(context) else BmsService.stop(context)
+    }
+
+    val batteries by app.manager.batteries.collectAsStateWithLifecycle()
+    val now by produceState(System.currentTimeMillis()) {
+        while (true) {
+            value = System.currentTimeMillis()
+            delay(1_000)
+        }
+    }
+    val alarms = remember(batteries, settings.thresholds, now) {
+        batteries.map { Alarms.evaluate(it, settings.thresholds, now) }
+    }
+
+    var screen by rememberSaveable { mutableStateOf(Screen.HOME) }
+    var detailSlot by rememberSaveable { mutableIntStateOf(0) }
+    var scanSlot by rememberSaveable { mutableStateOf<Int?>(null) }
+    var hideBatteryBanner by rememberSaveable { mutableStateOf(false) }
+    BackHandler(enabled = screen != Screen.HOME) { screen = Screen.HOME }
+
+    val unrestricted = remember(resumeTick) { isIgnoringBatteryOptimizations(context) }
+    val bluetoothOn = remember(now) { bluetoothAdapter(context)?.isEnabled == true }
+    val enableBluetooth = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {}
+
+    when (screen) {
+        Screen.DETAIL -> DetailScreen(
+            state = batteries[detailSlot],
+            alarms = alarms[detailSlot],
+            deviceName = settings.slots[detailSlot].deviceName,
+            now = now,
+            onBack = { screen = Screen.HOME },
+        )
+
+        Screen.SETTINGS -> SettingsScreen(
+            settings = settings,
+            batteries = batteries,
+            repo = app.settings,
+            unrestrictedBackground = unrestricted,
+            versionName = remember { appVersion(context) },
+            onRequestUnrestricted = { requestUnrestricted(context) },
+            onChooseDevice = { scanSlot = it },
+            onBack = { screen = Screen.HOME },
+        )
+
+        Screen.HOME -> HomeScreen(
+            batteries = batteries,
+            alarms = alarms,
+            now = now,
+            cellDeltaWarnMv = settings.thresholds.cellDeltaMv.takeIf { settings.thresholds.cellDeltaEnabled },
+            banners = {
+                val status = LocalStatusColors.current
+                if (!bluetoothOn) {
+                    Banner(
+                        "Bluetooth is off – the batteries can't be reached.",
+                        status.alarm,
+                        actionLabel = "Turn on",
+                        onAction = {
+                            try {
+                                enableBluetooth.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
+                            } catch (_: Exception) {
+                            }
+                        },
+                    )
+                }
+                if (!settings.monitoringEnabled) {
+                    Banner(
+                        "Monitoring is stopped.",
+                        status.warning,
+                        actionLabel = "Start",
+                        onAction = { app.settings.update { it.copy(monitoringEnabled = true) } },
+                    )
+                }
+                if (!unrestricted && !hideBatteryBanner) {
+                    Banner(
+                        "For a constant connection, allow the app to run in the background without restrictions.",
+                        status.warning,
+                        actionLabel = "Allow",
+                        onAction = { requestUnrestricted(context) },
+                        dismissLabel = "Not now",
+                        onDismiss = { hideBatteryBanner = true },
+                    )
+                }
+            },
+            onOpenDetail = {
+                detailSlot = it
+                screen = Screen.DETAIL
+            },
+            onSetup = { scanSlot = it },
+            onOpenSettings = { screen = Screen.SETTINGS },
+        )
+    }
+
+    scanSlot?.let { slot ->
+        ScanDialog(
+            slotName = settings.slotName(slot),
+            assigned = settings.slots.withIndex()
+                .filter { it.value.address != null }
+                .associate { it.value.address!! to settings.slotName(it.index) },
+            onDismiss = { scanSlot = null },
+            onPick = { address, name ->
+                app.settings.assignDevice(slot, address, name)
+                scanSlot = null
+            },
+        )
+    }
+}
+
+@Composable
+private fun PermissionScreen(onGrant: () -> Unit, onOpenAppSettings: () -> Unit) {
+    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .systemBarsPadding()
+                .padding(32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Text("Battery Monitor", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(16.dp))
+            Text(
+                "To find your JBD battery BMS units and stay connected to them, the app needs " +
+                    "permission to use Bluetooth" +
+                    (if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) " (Android calls this “Location” on this version)" else "") +
+                    ". Notifications are used for battery alarms.",
+                textAlign = TextAlign.Center,
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.widthIn(max = 520.dp),
+            )
+            Spacer(Modifier.height(24.dp))
+            Button(onClick = onGrant) { Text("Allow Bluetooth access") }
+            Spacer(Modifier.height(8.dp))
+            TextButton(onClick = onOpenAppSettings) { Text("Open app settings") }
+        }
+    }
+}
+
+/** Increments every time the activity resumes, e.g. after returning from a system settings screen. */
+@Composable
+private fun rememberResumeTick(): Int {
+    val owner = LocalLifecycleOwner.current
+    var tick by remember { mutableIntStateOf(0) }
+    DisposableEffect(owner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) tick++
+        }
+        owner.lifecycle.addObserver(observer)
+        onDispose { owner.lifecycle.removeObserver(observer) }
+    }
+    return tick
+}
+
+private fun bluetoothAdapter(context: Context): BluetoothAdapter? =
+    context.getSystemService(BluetoothManager::class.java)?.adapter
+
+private fun isIgnoringBatteryOptimizations(context: Context): Boolean =
+    context.getSystemService(PowerManager::class.java)?.isIgnoringBatteryOptimizations(context.packageName) == true
+
+@SuppressLint("BatteryLife") // Sideloaded monitoring app that must stay connected.
+private fun requestUnrestricted(context: Context) {
+    val direct = Intent(
+        Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+        Uri.parse("package:${context.packageName}"),
+    )
+    try {
+        context.startActivity(direct)
+    } catch (_: ActivityNotFoundException) {
+        try {
+            context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+        } catch (_: ActivityNotFoundException) {
+        }
+    }
+}
+
+private fun openAppSettings(context: Context) {
+    try {
+        context.startActivity(
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)),
+        )
+    } catch (_: ActivityNotFoundException) {
+    }
+}
+
+private fun appVersion(context: Context): String = try {
+    context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: ""
+} catch (_: Exception) {
+    ""
+}

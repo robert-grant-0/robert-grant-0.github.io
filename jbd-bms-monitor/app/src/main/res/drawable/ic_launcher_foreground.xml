@@ -1,0 +1,24 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Terminal -->
+    <path
+        android:fillColor="#FFE6EDF3"
+        android:pathData="M47,29h14a2,2 0,0 1,2 2v5h-18v-5a2,2 0,0 1,2 -2z" />
+    <!-- Body outline -->
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M42,36h24a4,4 0,0 1,4 4v34a4,4 0,0 1,-4 4h-24a4,4 0,0 1,-4 -4v-34a4,4 0,0 1,4 -4z"
+        android:strokeWidth="4"
+        android:strokeColor="#FFE6EDF3" />
+    <!-- Charge level -->
+    <path
+        android:fillColor="#FF4ADE80"
+        android:pathData="M43,50h22v23a1,1 0,0 1,-1 1h-20a1,1 0,0 1,-1 -1z" />
+    <!-- Bolt -->
+    <path
+        android:fillColor="#FF0F2A3D"
+        android:pathData="M57,41l-10,17h7l-3,13 11,-18h-7z" />
+</vector>
