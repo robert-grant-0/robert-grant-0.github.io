@@ -19,6 +19,18 @@ data class SlotConfig(
 
 enum class ThemeMode { DARK, LIGHT, SYSTEM }
 
+enum class VictronKind(val prefKey: String, val label: String) {
+    SHUNT("shunt", "SmartShunt"),
+    SOLAR("solar", "Solar charger"),
+}
+
+data class VictronSlot(
+    val address: String? = null,
+    val deviceName: String? = null,
+    /** Instant Readout encryption key from VictronConnect (32 hex digits). Stays on this device. */
+    val key: String = "",
+)
+
 data class AppSettings(
     val slots: List<SlotConfig> = List(BatteryState.SLOT_COUNT) { SlotConfig(defaultName(it)) },
     /** Whether the background service should keep the batteries connected. */
@@ -37,7 +49,11 @@ data class AppSettings(
     val sirenFullVolume: Boolean = true,
     val thresholds: AlarmThresholds = AlarmThresholds(),
     val theme: ThemeMode = ThemeMode.DARK,
+    val shunt: VictronSlot = VictronSlot(),
+    val solar: VictronSlot = VictronSlot(),
 ) {
+    fun victron(kind: VictronKind): VictronSlot = if (kind == VictronKind.SHUNT) shunt else solar
+
     fun slotName(slot: Int): String = slots[slot].name.ifBlank { defaultName(slot) }
 
     companion object {
@@ -76,6 +92,19 @@ class SettingsRepository(context: Context) {
         )
     }
 
+    fun updateVictron(kind: VictronKind, transform: (VictronSlot) -> VictronSlot) = update { s ->
+        when (kind) {
+            VictronKind.SHUNT -> s.copy(shunt = transform(s.shunt))
+            VictronKind.SOLAR -> s.copy(solar = transform(s.solar))
+        }
+    }
+
+    private fun loadVictron(kind: VictronKind) = VictronSlot(
+        address = prefs.getString("${kind.prefKey}_address", null),
+        deviceName = prefs.getString("${kind.prefKey}_device", null),
+        key = prefs.getString("${kind.prefKey}_key", null) ?: "",
+    )
+
     private fun load(): AppSettings {
         val d = AppSettings()
         val t = d.thresholds
@@ -107,7 +136,12 @@ class SettingsRepository(context: Context) {
                 cellDeltaMv = prefs.getInt("cell_delta", t.cellDeltaMv),
                 connectionLostEnabled = prefs.getBoolean("link_lost_on", t.connectionLostEnabled),
                 connectionLostSeconds = prefs.getInt("link_lost_sec", t.connectionLostSeconds),
+                shareImbalanceEnabled = prefs.getBoolean("share_on", t.shareImbalanceEnabled),
+                shareImbalancePoints = prefs.getInt("share_points", t.shareImbalancePoints),
+                shuntMismatchEnabled = prefs.getBoolean("shunt_mismatch_on", t.shuntMismatchEnabled),
             ),
+            shunt = loadVictron(VictronKind.SHUNT),
+            solar = loadVictron(VictronKind.SOLAR),
             theme = ThemeMode.entries.firstOrNull { it.name == prefs.getString("theme", null) } ?: d.theme,
         )
     }
@@ -139,6 +173,15 @@ class SettingsRepository(context: Context) {
             putInt("cell_delta", t.cellDeltaMv)
             putBoolean("link_lost_on", t.connectionLostEnabled)
             putInt("link_lost_sec", t.connectionLostSeconds)
+            putBoolean("share_on", t.shareImbalanceEnabled)
+            putInt("share_points", t.shareImbalancePoints)
+            putBoolean("shunt_mismatch_on", t.shuntMismatchEnabled)
+            for (kind in VictronKind.entries) {
+                val v = s.victron(kind)
+                putString("${kind.prefKey}_address", v.address)
+                putString("${kind.prefKey}_device", v.deviceName)
+                putString("${kind.prefKey}_key", v.key)
+            }
             putString("theme", s.theme.name)
         }
     }

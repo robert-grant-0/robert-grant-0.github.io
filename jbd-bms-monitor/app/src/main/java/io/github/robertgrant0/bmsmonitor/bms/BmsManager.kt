@@ -22,6 +22,11 @@ class BmsManager(private val context: Context, private val settings: SettingsRep
     private val setupLock = Mutex()
     private val finder = DeviceFinder(context)
     private val connections = arrayOfNulls<BmsConnection>(BatteryState.SLOT_COUNT)
+    private val victron = VictronMonitor(context)
+
+    /** Victron SmartShunt and solar charger readings. */
+    val shunt: StateFlow<VictronDeviceState> = victron.shunt
+    val solar: StateFlow<VictronDeviceState> = victron.solar
 
     private val _batteries = MutableStateFlow(
         List(BatteryState.SLOT_COUNT) { idleState(it, settings.current, null) },
@@ -40,6 +45,7 @@ class BmsManager(private val context: Context, private val settings: SettingsRep
         if (_running.value) return
         _running.value = true
         finder.start(scope)
+        victron.start(scope)
         apply(settings.current)
     }
 
@@ -48,6 +54,7 @@ class BmsManager(private val context: Context, private val settings: SettingsRep
         if (!_running.value) return
         _running.value = false
         finder.stop()
+        victron.stop()
         for (i in connections.indices) {
             connections[i]?.stop()
             connections[i] = null
@@ -59,6 +66,10 @@ class BmsManager(private val context: Context, private val settings: SettingsRep
     @Synchronized
     private fun apply(s: AppSettings) {
         finder.setTargets(s.slots.mapNotNull { it.address }.toSet())
+        victron.configure(
+            VictronConfig(s.shunt.address, s.shunt.deviceName ?: "SmartShunt", s.shunt.key),
+            VictronConfig(s.solar.address, s.solar.deviceName ?: "Solar charger", s.solar.key),
+        )
         for (i in 0 until BatteryState.SLOT_COUNT) {
             val address = s.slots[i].address
             val name = s.slotName(i)

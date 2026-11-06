@@ -49,6 +49,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.location.LocationManagerCompat
 import io.github.robertgrant0.bmsmonitor.bms.JbdProtocol
+import io.github.robertgrant0.bmsmonitor.bms.VictronProtocol
 import kotlinx.coroutines.delay
 
 private data class FoundDevice(val address: String, val name: String?, val rssi: Int, val likelyBms: Boolean)
@@ -64,6 +65,8 @@ fun ScanDialog(
     assigned: Map<String, String>,
     onDismiss: () -> Unit,
     onPick: (address: String, deviceName: String?) -> Unit,
+    /** When set, list only Victron devices broadcasting this Instant Readout record type. */
+    victronRecord: Int? = null,
 ) {
     val context = LocalContext.current
     val found = remember { mutableStateMapOf<String, FoundDevice>() }
@@ -84,6 +87,12 @@ fun ScanDialog(
                 override fun onScanResult(callbackType: Int, result: ScanResult) {
                     val address = result.device.address.uppercase()
                     val name = result.scanRecord?.deviceName ?: runCatching { result.device.name }.getOrNull()
+                    if (victronRecord != null) {
+                        val data = result.scanRecord?.getManufacturerSpecificData(VictronProtocol.COMPANY_ID)
+                        if (data == null || VictronProtocol.recordType(data) != victronRecord) return
+                        found[address] = FoundDevice(address, name ?: found[address]?.name ?: "Victron device", result.rssi, true)
+                        return
+                    }
                     val advertisesJbd = result.scanRecord?.serviceUuids?.any { it.uuid == JbdProtocol.SERVICE_UUID } == true
                     val prev = found[address]
                     val finalName = name ?: prev?.name
@@ -140,12 +149,17 @@ fun ScanDialog(
         ) {
             Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    "Choose the BMS for $slotName",
+                    if (victronRecord != null) "Choose your $slotName" else "Choose the BMS for $slotName",
                     style = MaterialTheme.typography.headlineSmall,
                 )
                 Text(
-                    "A BMS only shows up while nothing else is connected to it – close the Xiaoxiang / " +
-                        "JBD app on other phones first. Likely BMS units are listed first.",
+                    if (victronRecord != null) {
+                        "Only Victron devices of this type are listed. If yours is missing, turn on Bluetooth " +
+                            "and Instant Readout for it in VictronConnect."
+                    } else {
+                        "A BMS only shows up while nothing else is connected to it – close the Xiaoxiang / " +
+                            "JBD app on other phones first. Likely BMS units are listed first."
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -193,7 +207,7 @@ fun ScanDialog(
                                     )
                                     if (d.likelyBms) {
                                         Spacer(Modifier.width(8.dp))
-                                        Pill("BMS", MaterialTheme.colorScheme.primary)
+                                        Pill(if (victronRecord != null) "Victron" else "BMS", MaterialTheme.colorScheme.primary)
                                     }
                                 }
                                 Text(

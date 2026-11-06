@@ -18,6 +18,11 @@ data class AlarmThresholds(
     val cellDeltaMv: Int = 100,
     val connectionLostEnabled: Boolean = true,
     val connectionLostSeconds: Int = 60,
+    /** Warn when one battery carries this many percentage points more or less than an even share. */
+    val shareImbalanceEnabled: Boolean = true,
+    val shareImbalancePoints: Int = 15,
+    /** Warn when the SmartShunt and the sum of the BMS currents disagree. */
+    val shuntMismatchEnabled: Boolean = true,
 )
 
 object Alarms {

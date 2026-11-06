@@ -2,6 +2,7 @@ package io.github.robertgrant0.bmsmonitor
 
 import android.app.Application
 import android.content.Context
+import io.github.robertgrant0.bmsmonitor.bms.Alarm
 import io.github.robertgrant0.bmsmonitor.bms.BmsManager
 import io.github.robertgrant0.bmsmonitor.bms.SirenLatch
 import io.github.robertgrant0.bmsmonitor.data.SettingsRepository
@@ -10,6 +11,7 @@ import io.github.robertgrant0.bmsmonitor.service.SirenPlayer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
 class BmsApp : Application() {
@@ -20,6 +22,9 @@ class BmsApp : Application() {
 
     /** Latches the siren on for faults until someone presses Silence. */
     val siren = SirenLatch()
+
+    /** Bank-wide alarms (SmartShunt, solar charger, current sharing), computed by the service. */
+    val bankAlarms = MutableStateFlow<List<Alarm>>(emptyList())
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     override fun onCreate() {

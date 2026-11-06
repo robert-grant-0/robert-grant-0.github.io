@@ -54,7 +54,9 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.robertgrant0.bmsmonitor.bms.Alarms
+import io.github.robertgrant0.bmsmonitor.bms.VictronProtocol
 import io.github.robertgrant0.bmsmonitor.data.AppSettings
+import io.github.robertgrant0.bmsmonitor.data.VictronKind
 import io.github.robertgrant0.bmsmonitor.service.BmsService
 import io.github.robertgrant0.bmsmonitor.ui.Banner
 import io.github.robertgrant0.bmsmonitor.ui.BmsTheme
@@ -126,6 +128,10 @@ private fun AppRoot(app: BmsApp, settings: AppSettings) {
     }
 
     val batteries by app.manager.batteries.collectAsStateWithLifecycle()
+    val shunt by app.manager.shunt.collectAsStateWithLifecycle()
+    val solar by app.manager.solar.collectAsStateWithLifecycle()
+    val bankAlarms by app.bankAlarms.collectAsStateWithLifecycle()
+    var victronScan by rememberSaveable { mutableStateOf<VictronKind?>(null) }
     val now by produceState(System.currentTimeMillis()) {
         while (true) {
             value = System.currentTimeMillis()
@@ -177,6 +183,8 @@ private fun AppRoot(app: BmsApp, settings: AppSettings) {
             onTestSiren = { app.siren.test() },
             onSilenceSiren = { app.siren.silence() },
             onChooseDevice = { scanSlot = it },
+            victronStates = mapOf(VictronKind.SHUNT to shunt, VictronKind.SOLAR to solar),
+            onChooseVictron = { victronScan = it },
             onBack = { screen = Screen.HOME },
         )
 
@@ -185,6 +193,9 @@ private fun AppRoot(app: BmsApp, settings: AppSettings) {
             alarms = alarms,
             now = now,
             cellDeltaWarnMv = settings.thresholds.cellDeltaMv.takeIf { settings.thresholds.cellDeltaEnabled },
+            shunt = shunt,
+            solar = solar,
+            bankAlarms = bankAlarms,
             banners = {
                 val status = LocalStatusColors.current
                 if (!bluetoothOn) {
@@ -225,6 +236,23 @@ private fun AppRoot(app: BmsApp, settings: AppSettings) {
             },
             onSetup = { scanSlot = it },
             onOpenSettings = { screen = Screen.SETTINGS },
+        )
+    }
+
+    victronScan?.let { kind ->
+        ScanDialog(
+            slotName = kind.label,
+            assigned = emptyMap(),
+            onDismiss = { victronScan = null },
+            onPick = { address, name ->
+                app.settings.updateVictron(kind) { it.copy(address = address, deviceName = name) }
+                victronScan = null
+            },
+            victronRecord = if (kind == VictronKind.SHUNT) {
+                VictronProtocol.RECORD_BATTERY_MONITOR
+            } else {
+                VictronProtocol.RECORD_SOLAR_CHARGER
+            },
         )
     }
 

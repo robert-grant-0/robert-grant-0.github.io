@@ -154,12 +154,12 @@ object Notifications {
     }
 
     @SuppressLint("MissingPermission") // Checked with Permissions.canNotify.
-    fun postAlarm(ctx: Context, battery: BatteryState, active: List<Alarm>, fresh: List<Alarm>) {
+    fun postAlarm(ctx: Context, id: Int, name: String, active: List<Alarm>, fresh: List<Alarm>) {
         if (!Permissions.canNotify(ctx)) return
         val critical = fresh.any { it.severity == Severity.ALARM }
         val notification = NotificationCompat.Builder(ctx, CHANNEL_ALARMS)
             .setSmallIcon(R.drawable.ic_stat_battery)
-            .setContentTitle("${if (critical) "⚠ " else ""}${battery.name}: ${fresh.first().message}")
+            .setContentTitle("${if (critical) "⚠ " else ""}$name: ${fresh.first().message}")
             .setContentText(fresh.joinToString(", ") { it.message })
             .setStyle(NotificationCompat.BigTextStyle().bigText(active.joinToString("\n") { "• ${it.message}" }))
             .setContentIntent(openAppIntent(ctx))
@@ -169,7 +169,7 @@ object Notifications {
             .setAutoCancel(true)
             .build()
         try {
-            NotificationManagerCompat.from(ctx).notify(ID_ALARM_BASE + battery.slot, notification)
+            NotificationManagerCompat.from(ctx).notify(ID_ALARM_BASE + id, notification)
         } catch (_: SecurityException) {
         }
     }

@@ -192,7 +192,7 @@ fun SectionLabel(text: String, modifier: Modifier = Modifier) {
 
 /** Big "CHARGING +12.34 A" banner. */
 @Composable
-fun FlowBanner(b: BasicInfo, modifier: Modifier = Modifier) {
+fun FlowBanner(b: BasicInfo, modifier: Modifier = Modifier, share: Double? = null) {
     val status = LocalStatusColors.current
     val (label, color) = when (powerFlow(b.current)) {
         PowerFlow.CHARGING -> "CHARGING" to status.charging
@@ -222,6 +222,13 @@ fun FlowBanner(b: BasicInfo, modifier: Modifier = Modifier) {
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
             )
+            if (share != null) {
+                Text(
+                    text = "${Math.round(share * 100)}% of bank current",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }

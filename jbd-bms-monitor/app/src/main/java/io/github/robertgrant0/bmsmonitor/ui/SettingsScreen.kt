@@ -45,6 +45,17 @@ import io.github.robertgrant0.bmsmonitor.bms.BatteryState
 import io.github.robertgrant0.bmsmonitor.data.AppSettings
 import io.github.robertgrant0.bmsmonitor.data.SettingsRepository
 import io.github.robertgrant0.bmsmonitor.data.ThemeMode
+import io.github.robertgrant0.bmsmonitor.data.VictronKind
+import io.github.robertgrant0.bmsmonitor.data.VictronSlot
+import io.github.robertgrant0.bmsmonitor.bms.VictronDeviceState
+import io.github.robertgrant0.bmsmonitor.bms.VictronProtocol
+import io.github.robertgrant0.bmsmonitor.bms.VictronStatus
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import io.github.robertgrant0.bmsmonitor.service.Notifications
 
 @Composable
@@ -60,6 +71,8 @@ fun SettingsScreen(
     onTestSiren: () -> Unit,
     onSilenceSiren: () -> Unit,
     onChooseDevice: (Int) -> Unit,
+    victronStates: Map<VictronKind, VictronDeviceState>,
+    onChooseVictron: (VictronKind) -> Unit,
     onBack: () -> Unit,
 ) {
     fun thresholds(transform: (AlarmThresholds) -> AlarmThresholds) =
@@ -132,6 +145,27 @@ fun SettingsScreen(
                                 }
                             }
                         }
+                    }
+                }
+
+                Panel("Victron devices") {
+                    Text(
+                        "Read live from Victron Instant Readout broadcasts – nothing connects to the devices, " +
+                            "so VictronConnect keeps working. Find each key in VictronConnect: open the device, " +
+                            "⚙ Settings → ⋮ → Product info → Instant readout details → Show. The key stays on this tablet.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    for ((index, kind) in VictronKind.entries.withIndex()) {
+                        if (index > 0) HorizontalDivider()
+                        VictronEditor(
+                            kind = kind,
+                            slot = settings.victron(kind),
+                            state = victronStates[kind] ?: VictronDeviceState(),
+                            onChoose = { onChooseVictron(kind) },
+                            onRemove = { repo.updateVictron(kind) { VictronSlot() } },
+                            onKey = { key -> repo.updateVictron(kind) { it.copy(key = key.trim()) } },
+                        )
                     }
                 }
 
@@ -257,6 +291,16 @@ fun SettingsScreen(
                         onValue = { v -> thresholds { it.copy(cellDeltaMv = v) } },
                     )
                     ThresholdRow(
+                        "Uneven current sharing", t.shareImbalanceEnabled, t.shareImbalancePoints, "pts", 5..50, 5,
+                        onEnabled = { on -> thresholds { it.copy(shareImbalanceEnabled = on) } },
+                        onValue = { v -> thresholds { it.copy(shareImbalancePoints = v) } },
+                    )
+                    SwitchRow(
+                        "Shunt and batteries disagree",
+                        "Warn when the SmartShunt's current differs from the three batteries' total for a minute",
+                        t.shuntMismatchEnabled,
+                    ) { on -> thresholds { it.copy(shuntMismatchEnabled = on) } }
+                    ThresholdRow(
                         "Not connected for", t.connectionLostEnabled, t.connectionLostSeconds, "s", 15..900, 15,
                         onEnabled = { on -> thresholds { it.copy(connectionLostEnabled = on) } },
                         onValue = { v -> thresholds { it.copy(connectionLostSeconds = v) } },
@@ -295,6 +339,66 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun VictronEditor(
+    kind: VictronKind,
+    slot: VictronSlot,
+    state: VictronDeviceState,
+    onChoose: () -> Unit,
+    onRemove: () -> Unit,
+    onKey: (String) -> Unit,
+) {
+    var showKey by remember { mutableStateOf(false) }
+    val keyOk = VictronProtocol.parseKey(slot.key) != null
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(kind.label, style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    if (slot.address == null) {
+                        "Not set up"
+                    } else {
+                        "${slot.deviceName ?: kind.label} · ${slot.address} · " + when (state.status) {
+                            VictronStatus.RECEIVING -> "receiving"
+                            VictronStatus.WAITING -> "listening…"
+                            VictronStatus.NO_KEY -> "key needed"
+                            VictronStatus.WRONG_KEY -> "wrong key"
+                            VictronStatus.WRONG_TYPE -> "wrong device type"
+                            VictronStatus.STOPPED -> "monitoring stopped"
+                            VictronStatus.NOT_CONFIGURED -> ""
+                        }
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (state.status == VictronStatus.WRONG_KEY || state.status == VictronStatus.WRONG_TYPE) {
+                        LocalStatusColors.current.alarm
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
+            if (slot.address != null) {
+                TextButton(onClick = onRemove) { Text("Remove") }
+                Spacer(Modifier.width(8.dp))
+            }
+            OutlinedButton(onClick = onChoose) { Text(if (slot.address == null) "Choose" else "Change") }
+        }
+        if (slot.address != null) {
+            OutlinedTextField(
+                value = slot.key,
+                onValueChange = { onKey(it.take(40)) },
+                label = { Text("Encryption key (32 characters)") },
+                singleLine = true,
+                isError = slot.key.isNotBlank() && !keyOk,
+                visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
+                trailingIcon = {
+                    TextButton(onClick = { showKey = !showKey }) { Text(if (showKey) "Hide" else "Show") }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 }

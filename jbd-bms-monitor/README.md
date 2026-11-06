@@ -16,6 +16,17 @@ An Android app that stays connected over Bluetooth to **three JBD (Jiabaida / "X
 
 **Battery detail screen** (tap a card): per-cell voltage bars, every BMS protection flag, each temperature sensor, hardware and software version, manufacture date, signal strength, reconnect count.
 
+## Victron SmartShunt and solar charger (optional)
+
+The app reads a Victron **SmartShunt** and a **SmartSolar MPPT** from their Bluetooth *Instant Readout* broadcasts. It never connects to them, so VictronConnect keeps working and nothing on the Victron devices can be changed.
+
+- **SmartShunt:** bank charge, current, power, voltage, Ah used and time to go are shown at the top of the screen. The shunt measures the whole bank, so these figures take priority over the BMS totals. Shunt alarms (low/high voltage, low charge, overload, …) feed into the app's alarms and siren.
+- **Solar charger:** PV power, charging current, charge state (bulk/absorption/float) and today's yield. Charger errors raise an alarm.
+- **Other (DC-DC − loads):** the shunt's current minus solar. With the engine running, this mostly shows what the DC-DC chargers add, minus whatever loads are on. The DC-DC chargers themselves can't be read directly.
+- **Current sharing (parallel batteries):** each battery shows its share of the bank current. A warning appears when one battery carries noticeably more or less than the others for 2 minutes, which is often a loose terminal, a cable problem or a weak battery. A second warning fires if the shunt and the three BMS totals disagree for a minute.
+
+Setup: **Settings → Victron devices → Choose**, then enter the device's encryption key. In VictronConnect, open the device, then ⚙ Settings → ⋮ → Product info → Instant readout details → Show. The key is stored only on the tablet, and the app has backups turned off so it isn't copied to the cloud.
+
 ## Siren
 
 For a BMS fault, the app sounds a **loud wailing siren that keeps going until you press Silence**:

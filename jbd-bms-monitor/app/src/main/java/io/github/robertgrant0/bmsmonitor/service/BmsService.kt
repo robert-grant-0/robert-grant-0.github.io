@@ -15,7 +15,9 @@ import io.github.robertgrant0.bmsmonitor.Permissions
 import io.github.robertgrant0.bmsmonitor.bmsApp
 import io.github.robertgrant0.bmsmonitor.bms.Alarm
 import io.github.robertgrant0.bmsmonitor.bms.Alarms
+import io.github.robertgrant0.bmsmonitor.bms.BankAnalysis
 import io.github.robertgrant0.bmsmonitor.bms.BatteryState
+import io.github.robertgrant0.bmsmonitor.bms.SustainTracker
 import io.github.robertgrant0.bmsmonitor.bms.SirenLatch
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -37,7 +39,9 @@ class BmsService : Service() {
     private var lastNotificationText: String? = null
 
     // Alarm keys currently active per slot, and when each "slot:key" was last notified.
-    private val activeAlarms = Array(BatteryState.SLOT_COUNT) { emptySet<String>() }
+    // Index SLOT_COUNT holds the bank-wide alarms.
+    private val activeAlarms = Array(BatteryState.SLOT_COUNT + 1) { emptySet<String>() }
+    private val bankTracker = SustainTracker()
     private val lastNotified = HashMap<String, Long>()
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -98,6 +102,10 @@ class BmsService : Service() {
             val now = System.currentTimeMillis()
             val batteries = app.manager.batteries.value
             val alarms = batteries.map { Alarms.evaluate(it, settings.thresholds, now) }
+            val bankAlarms = BankAnalysis.evaluate(
+                batteries, app.manager.shunt.value, app.manager.solar.value, settings.thresholds, now, bankTracker,
+            )
+            app.bankAlarms.value = bankAlarms
 
             val notification = Notifications.monitor(this, batteries, alarms, now)
             val text = notification.extras.getCharSequence("android.bigText")?.toString()
@@ -115,9 +123,10 @@ class BmsService : Service() {
                     batteries.forEachIndexed { i, b ->
                         for (a in alarms[i]) if (sirenFor(a)) put("$i:${a.key}", "${b.name}: ${a.message}")
                     }
+                    for (a in bankAlarms) if (sirenFor(a)) put("bank:${a.key}", a.message)
                 },
             )
-            if (settings.alarmNotifications) raiseAlarms(batteries, alarms, now, skip = sirenFor)
+            if (settings.alarmNotifications) raiseAlarms(batteries, alarms, bankAlarms, now, skip = sirenFor)
             delay(2_000)
         }
     }
@@ -125,11 +134,12 @@ class BmsService : Service() {
     private fun raiseAlarms(
         batteries: List<BatteryState>,
         alarms: List<List<Alarm>>,
+        bankAlarms: List<Alarm>,
         now: Long,
         skip: (Alarm) -> Boolean,
     ) {
-        for (i in batteries.indices) {
-            val active = alarms[i]
+        for (i in 0..batteries.size) {
+            val active = if (i < batteries.size) alarms[i] else bankAlarms
             // Alarms that sound the siren get the full-screen siren notification instead.
             val fresh = active.filter { a ->
                 !skip(a) && a.key !in activeAlarms[i] && now - (lastNotified["$i:${a.key}"] ?: 0L) > RENOTIFY_AFTER_MS
@@ -137,7 +147,11 @@ class BmsService : Service() {
             activeAlarms[i] = active.map { it.key }.toSet()
             if (fresh.isNotEmpty()) {
                 fresh.forEach { lastNotified["$i:${it.key}"] = now }
-                Notifications.postAlarm(this, batteries[i], active, fresh)
+                if (i < batteries.size) {
+                    Notifications.postAlarm(this, batteries[i].slot, batteries[i].name, active, fresh)
+                } else {
+                    Notifications.postAlarm(this, BatteryState.SLOT_COUNT, "Battery bank", active, fresh)
+                }
             }
         }
     }

@@ -48,6 +48,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.robertgrant0.bmsmonitor.bms.Alarm
+import io.github.robertgrant0.bmsmonitor.bms.BankAnalysis
+import io.github.robertgrant0.bmsmonitor.bms.VictronDeviceState
+import io.github.robertgrant0.bmsmonitor.bms.VictronProtocol
+import io.github.robertgrant0.bmsmonitor.bms.VictronStatus
 import io.github.robertgrant0.bmsmonitor.bms.BatteryState
 import io.github.robertgrant0.bmsmonitor.bms.LinkState
 import io.github.robertgrant0.bmsmonitor.bms.Severity
@@ -58,6 +62,9 @@ fun HomeScreen(
     alarms: List<List<Alarm>>,
     now: Long,
     cellDeltaWarnMv: Int?,
+    shunt: VictronDeviceState,
+    solar: VictronDeviceState,
+    bankAlarms: List<Alarm>,
     banners: @Composable ColumnScope.() -> Unit,
     onOpenDetail: (Int) -> Unit,
     onSetup: (Int) -> Unit,
@@ -83,7 +90,12 @@ fun HomeScreen(
                 .padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
         ) {
             banners()
-            SummaryBar(bankSummary(batteries, now), alarms)
+            val shares = BankAnalysis.currentShares(batteries, now)
+            SummaryBar(bankSummary(batteries, now), alarms, bankAlarms, shunt, solar, now)
+            if (bankAlarms.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                AlarmList(bankAlarms)
+            }
             Spacer(Modifier.height(12.dp))
             BoxWithConstraints(
                 Modifier
@@ -99,6 +111,7 @@ fun HomeScreen(
                                 alarms = alarms[i],
                                 now = now,
                                 cellDeltaWarnMv = cellDeltaWarnMv,
+                                share = shares?.getOrNull(i),
                                 scrollable = true,
                                 onClick = { if (b.isConfigured) onOpenDetail(i) else onSetup(i) },
                                 modifier = Modifier
@@ -121,6 +134,7 @@ fun HomeScreen(
                                 alarms = alarms[i],
                                 now = now,
                                 cellDeltaWarnMv = cellDeltaWarnMv,
+                                share = shares?.getOrNull(i),
                                 scrollable = false,
                                 onClick = { if (b.isConfigured) onOpenDetail(i) else onSetup(i) },
                                 modifier = Modifier.fillMaxWidth(),
@@ -134,51 +148,120 @@ fun HomeScreen(
 }
 
 @Composable
-private fun SummaryBar(s: BankSummary, alarms: List<List<Alarm>>) {
+private fun SummaryBar(
+    s: BankSummary,
+    alarms: List<List<Alarm>>,
+    bankAlarms: List<Alarm>,
+    shunt: VictronDeviceState,
+    solar: VictronDeviceState,
+    now: Long,
+) {
     val status = LocalStatusColors.current
-    val all = alarms.flatten()
+    val all = alarms.flatten() + bankAlarms
     val alarmColor = when {
         all.any { it.severity == Severity.ALARM } -> status.alarm
         all.isNotEmpty() -> status.warning
         else -> status.ok
     }
-    val hasLive = s.liveCount > 0
-    val currentColor = if (!hasLive) Color.Unspecified else when (powerFlow(s.current)) {
-        PowerFlow.CHARGING -> status.charging
-        PowerFlow.DISCHARGING -> status.discharging
-        PowerFlow.IDLE -> Color.Unspecified
+    fun flowColor(amps: Double?): Color = when {
+        amps == null -> Color.Unspecified
+        powerFlow(amps) == PowerFlow.CHARGING -> status.charging
+        powerFlow(amps) == PowerFlow.DISCHARGING -> status.discharging
+        else -> Color.Unspecified
     }
+
+    val sh = shunt.shunt?.takeIf { shunt.isLive(now) }
+    val pv = solar.solar?.takeIf { solar.isLive(now) }
+    val hasLive = s.liveCount > 0
+
     Surface(
         shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surfaceContainer,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Row(
-            Modifier
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(36.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Metric(MetricItem("Bank charge", s.socPercent?.let { "$it%" } ?: "--", socColor(s.socPercent)), large = true)
-            Metric(MetricItem("Total current", if (hasLive) Fmt.amps(s.current) else "--", currentColor), large = true)
-            Metric(MetricItem("Total power", if (hasLive) Fmt.watts(s.power) else "--", currentColor), large = true)
-            Metric(
-                MetricItem("Remaining", if (hasLive) "${Fmt.ah(s.remainingAh)} of ${Fmt.ah(s.nominalAh)}" else "--"),
-                large = true,
-            )
-            Metric(MetricItem("Estimate", if (hasLive) s.estimate ?: "Idle" else "--"), large = true)
-            Metric(
-                MetricItem(
-                    "Connected",
-                    "${s.liveCount} / ${s.configuredCount}",
-                    if (s.liveCount == s.configuredCount && s.configuredCount > 0) status.ok else status.warning,
-                ),
-                large = true,
-            )
-            Metric(MetricItem("Alarms", if (all.isEmpty()) "None" else "${all.size}", alarmColor), large = true)
+        Column(Modifier.padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(36.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (sh != null) {
+                    // The SmartShunt measures the whole bank directly, so it leads.
+                    val soc = sh.stateOfCharge?.let { Math.round(it).toInt() }
+                    val watts = if (sh.voltage != null && sh.current != null) sh.voltage * sh.current else null
+                    Metric(MetricItem("Bank charge", soc?.let { "$it%" } ?: "--", socColor(soc)), large = true)
+                    Metric(MetricItem("Bank current", sh.current?.let { Fmt.amps(it) } ?: "--", flowColor(sh.current)), large = true)
+                    Metric(MetricItem("Bank power", watts?.let { Fmt.watts(it) } ?: "--", flowColor(sh.current)), large = true)
+                    Metric(MetricItem("Bank voltage", sh.voltage?.let { Fmt.volts(it) } ?: "--"), large = true)
+                    Metric(MetricItem("Used", sh.consumedAh?.let { Fmt.ah(-it) } ?: "--"), large = true)
+                    Metric(
+                        MetricItem(
+                            "Time to go",
+                            sh.remainingMinutes?.let { Fmt.hours(it / 60.0) } ?: if (hasLive) s.estimate ?: "Idle" else "--",
+                        ),
+                        large = true,
+                    )
+                } else {
+                    val amps = if (hasLive) s.current else null
+                    Metric(MetricItem("Bank charge", s.socPercent?.let { "$it%" } ?: "--", socColor(s.socPercent)), large = true)
+                    Metric(MetricItem("Total current", amps?.let { Fmt.amps(it) } ?: "--", flowColor(amps)), large = true)
+                    Metric(MetricItem("Total power", if (hasLive) Fmt.watts(s.power) else "--", flowColor(amps)), large = true)
+                    Metric(
+                        MetricItem("Remaining", if (hasLive) "${Fmt.ah(s.remainingAh)} of ${Fmt.ah(s.nominalAh)}" else "--"),
+                        large = true,
+                    )
+                    Metric(MetricItem("Estimate", if (hasLive) s.estimate ?: "Idle" else "--"), large = true)
+                }
+                Metric(
+                    MetricItem(
+                        "Batteries",
+                        "${s.liveCount} / ${s.configuredCount}",
+                        if (s.liveCount == s.configuredCount && s.configuredCount > 0) status.ok else status.warning,
+                    ),
+                    large = true,
+                )
+                Metric(MetricItem("Alarms", if (all.isEmpty()) "None" else "${all.size}", alarmColor), large = true)
+            }
+            if (shunt.isConfigured || solar.isConfigured) {
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(36.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (solar.isConfigured) {
+                        Metric(MetricItem("Solar", pv?.solarPower?.let { "$it W" } ?: victronStatusText(solar, now), status.charging))
+                        if (pv != null) {
+                            Metric(MetricItem("Solar charging", pv.batteryCurrent?.let { Fmt.amps(it) } ?: "--"))
+                            Metric(MetricItem("Charger state", VictronProtocol.chargeStateName(pv.chargeState)))
+                            Metric(
+                                MetricItem(
+                                    "Solar today",
+                                    pv.yieldTodayWh?.let { String.format(java.util.Locale.US, "%.2f kWh", it / 1000.0) } ?: "--",
+                                ),
+                            )
+                        }
+                    }
+                    val other = BankAnalysis.otherCurrent(shunt, solar, now)
+                    if (other != null) {
+                        Metric(MetricItem("Other (DC-DC − loads)", Fmt.amps(other), flowColor(other)))
+                    }
+                    if (shunt.isConfigured && sh == null) {
+                        Metric(MetricItem("SmartShunt", victronStatusText(shunt, now), status.warning))
+                    }
+                }
+            }
         }
     }
+}
+
+private fun victronStatusText(d: VictronDeviceState, now: Long): String = when (d.status) {
+    VictronStatus.NOT_CONFIGURED -> "Not set up"
+    VictronStatus.NO_KEY -> "Key needed"
+    VictronStatus.STOPPED -> "Stopped"
+    VictronStatus.WAITING -> "Listening…"
+    VictronStatus.WRONG_KEY -> "Wrong key"
+    VictronStatus.WRONG_TYPE -> "Wrong device type"
+    VictronStatus.RECEIVING -> if (d.isLive(now)) "Receiving" else "Not heard ${Fmt.ago(now - d.lastUpdate)}"
 }
 
 @Composable
@@ -187,6 +270,7 @@ private fun BatteryCard(
     alarms: List<Alarm>,
     now: Long,
     cellDeltaWarnMv: Int?,
+    share: Double?,
     scrollable: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -216,7 +300,7 @@ private fun BatteryCard(
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 CardHeader(state)
-                BatteryReadings(state, now, cellDeltaWarnMv)
+                BatteryReadings(state, now, cellDeltaWarnMv, share)
                 SectionLabel("Alarms")
                 AlarmList(alarms)
             }
@@ -248,7 +332,7 @@ private fun CardHeader(state: BatteryState) {
 }
 
 @Composable
-private fun BatteryReadings(state: BatteryState, now: Long, cellDeltaWarnMv: Int?) {
+private fun BatteryReadings(state: BatteryState, now: Long, cellDeltaWarnMv: Int?, share: Double?) {
     val status = LocalStatusColors.current
     val b = state.basic
     if (b == null) {
@@ -297,7 +381,7 @@ private fun BatteryReadings(state: BatteryState, now: Long, cellDeltaWarnMv: Int
                 subtitle = "${Fmt.ah(b.remainingCapacity)} / ${Fmt.ah(b.nominalCapacity)}",
             )
         }
-        FlowBanner(b)
+        FlowBanner(b, share = share)
         MetricGrid(
             listOf(
                 MetricItem("Voltage", Fmt.volts(b.totalVoltage)),
