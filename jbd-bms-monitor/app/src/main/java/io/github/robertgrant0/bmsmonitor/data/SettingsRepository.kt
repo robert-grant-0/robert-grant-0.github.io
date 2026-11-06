@@ -29,6 +29,12 @@ data class AppSettings(
     val keepAwake: Boolean = true,
     val startOnBoot: Boolean = true,
     val alarmNotifications: Boolean = true,
+    /** Loud, repeating siren for BMS faults that keeps going until silenced. */
+    val sirenEnabled: Boolean = true,
+    /** Also sound the siren for warnings (low charge, imbalance, low temperature, disconnected…). */
+    val sirenForWarnings: Boolean = false,
+    /** Turn the alarm volume up to maximum while the siren sounds. */
+    val sirenFullVolume: Boolean = true,
     val thresholds: AlarmThresholds = AlarmThresholds(),
     val theme: ThemeMode = ThemeMode.DARK,
 ) {
@@ -87,6 +93,9 @@ class SettingsRepository(context: Context) {
             keepAwake = prefs.getBoolean("keep_awake", d.keepAwake),
             startOnBoot = prefs.getBoolean("start_on_boot", d.startOnBoot),
             alarmNotifications = prefs.getBoolean("alarm_notifications", d.alarmNotifications),
+            sirenEnabled = prefs.getBoolean("siren", d.sirenEnabled),
+            sirenForWarnings = prefs.getBoolean("siren_warnings", d.sirenForWarnings),
+            sirenFullVolume = prefs.getBoolean("siren_full_volume", d.sirenFullVolume),
             thresholds = AlarmThresholds(
                 lowSocEnabled = prefs.getBoolean("low_soc_on", t.lowSocEnabled),
                 lowSocPercent = prefs.getInt("low_soc", t.lowSocPercent),
@@ -117,6 +126,9 @@ class SettingsRepository(context: Context) {
             putBoolean("keep_awake", s.keepAwake)
             putBoolean("start_on_boot", s.startOnBoot)
             putBoolean("alarm_notifications", s.alarmNotifications)
+            putBoolean("siren", s.sirenEnabled)
+            putBoolean("siren_warnings", s.sirenForWarnings)
+            putBoolean("siren_full_volume", s.sirenFullVolume)
             putBoolean("low_soc_on", t.lowSocEnabled)
             putInt("low_soc", t.lowSocPercent)
             putBoolean("high_temp_on", t.highTempEnabled)

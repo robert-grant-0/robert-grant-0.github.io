@@ -1,6 +1,7 @@
 package io.github.robertgrant0.bmsmonitor
 
 import android.annotation.SuppressLint
+import android.app.NotificationManager
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
 import android.content.ActivityNotFoundException
@@ -142,6 +143,16 @@ private fun AppRoot(app: BmsApp, settings: AppSettings) {
     BackHandler(enabled = screen != Screen.HOME) { screen = Screen.HOME }
 
     val unrestricted = remember(resumeTick) { isIgnoringBatteryOptimizations(context) }
+    val fullScreenAllowed = remember(resumeTick) { canUseFullScreenAlarms(context) }
+
+    // While the app is on screen a full-screen notification only shows as a banner,
+    // so open the alarm page directly when the siren starts.
+    val sirenMessages by app.siren.ringing.collectAsStateWithLifecycle()
+    LaunchedEffect(sirenMessages.isNotEmpty()) {
+        if (sirenMessages.isNotEmpty()) {
+            context.startActivity(Intent(context, AlarmActivity::class.java))
+        }
+    }
     val bluetoothOn = remember(now) { bluetoothAdapter(context)?.isEnabled == true }
     val enableBluetooth = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {}
 
@@ -161,6 +172,10 @@ private fun AppRoot(app: BmsApp, settings: AppSettings) {
             unrestrictedBackground = unrestricted,
             versionName = remember { appVersion(context) },
             onRequestUnrestricted = { requestUnrestricted(context) },
+            fullScreenAlarmAllowed = fullScreenAllowed,
+            onAllowFullScreenAlarm = { requestFullScreenAlarms(context) },
+            onTestSiren = { app.siren.test() },
+            onSilenceSiren = { app.siren.silence() },
             onChooseDevice = { scanSlot = it },
             onBack = { screen = Screen.HOME },
         )
@@ -292,6 +307,21 @@ private fun requestUnrestricted(context: Context) {
             context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
         } catch (_: ActivityNotFoundException) {
         }
+    }
+}
+
+private fun canUseFullScreenAlarms(context: Context): Boolean =
+    Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE ||
+        context.getSystemService(NotificationManager::class.java)?.canUseFullScreenIntent() != false
+
+private fun requestFullScreenAlarms(context: Context) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return
+    try {
+        context.startActivity(
+            Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, Uri.parse("package:${context.packageName}")),
+        )
+    } catch (_: ActivityNotFoundException) {
+        openAppSettings(context)
     }
 }
 

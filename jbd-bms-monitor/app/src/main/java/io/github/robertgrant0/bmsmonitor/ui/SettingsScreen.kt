@@ -55,6 +55,10 @@ fun SettingsScreen(
     unrestrictedBackground: Boolean,
     versionName: String,
     onRequestUnrestricted: () -> Unit,
+    fullScreenAlarmAllowed: Boolean,
+    onAllowFullScreenAlarm: () -> Unit,
+    onTestSiren: () -> Unit,
+    onSilenceSiren: () -> Unit,
     onChooseDevice: (Int) -> Unit,
     onBack: () -> Unit,
 ) {
@@ -179,6 +183,44 @@ fun SettingsScreen(
                             Button(onClick = onRequestUnrestricted) { Text("Allow") }
                         }
                     }
+                }
+
+                Panel("Siren") {
+                    SwitchRow(
+                        "Loud siren for BMS faults",
+                        "Sounds a siren through the alarm volume, even on silent, with a full-screen alarm, " +
+                            "until you press Silence. Used for BMS protections, a switched-off discharge MOSFET " +
+                            "and high temperature.",
+                        settings.sirenEnabled,
+                    ) { on ->
+                        repo.update { it.copy(sirenEnabled = on) }
+                        if (!on) onSilenceSiren()
+                    }
+                    SwitchRow(
+                        "Siren for warnings too",
+                        "Also sound it for low charge, low temperature, cell imbalance, " +
+                            "a charge MOSFET that is off, and a battery that stays disconnected",
+                        settings.sirenForWarnings,
+                    ) { on -> repo.update { it.copy(sirenForWarnings = on) } }
+                    SwitchRow(
+                        "Full alarm volume",
+                        "Turns the alarm volume up to maximum while the siren sounds, then puts it back",
+                        settings.sirenFullVolume,
+                    ) { on -> repo.update { it.copy(sirenFullVolume = on) } }
+                    if (!fullScreenAlarmAllowed) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                "Android is blocking the full-screen alarm page for this app. " +
+                                    "The siren still sounds, but allow it so the alarm wakes the screen.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = LocalStatusColors.current.warning,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Button(onClick = onAllowFullScreenAlarm) { Text("Allow") }
+                        }
+                    }
+                    OutlinedButton(onClick = onTestSiren) { Text("Test siren") }
                 }
 
                 Panel("Alarms") {

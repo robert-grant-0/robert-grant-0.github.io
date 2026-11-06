@@ -16,6 +16,7 @@ import io.github.robertgrant0.bmsmonitor.bmsApp
 import io.github.robertgrant0.bmsmonitor.bms.Alarm
 import io.github.robertgrant0.bmsmonitor.bms.Alarms
 import io.github.robertgrant0.bmsmonitor.bms.BatteryState
+import io.github.robertgrant0.bmsmonitor.bms.SirenLatch
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -108,16 +109,30 @@ class BmsService : Service() {
                 }
             }
 
-            if (settings.alarmNotifications) raiseAlarms(batteries, alarms, now)
+            val sirenFor = { a: Alarm -> settings.sirenEnabled && SirenLatch.isSirenWorthy(a, settings.sirenForWarnings) }
+            app.siren.update(
+                buildMap {
+                    batteries.forEachIndexed { i, b ->
+                        for (a in alarms[i]) if (sirenFor(a)) put("$i:${a.key}", "${b.name}: ${a.message}")
+                    }
+                },
+            )
+            if (settings.alarmNotifications) raiseAlarms(batteries, alarms, now, skip = sirenFor)
             delay(2_000)
         }
     }
 
-    private fun raiseAlarms(batteries: List<BatteryState>, alarms: List<List<Alarm>>, now: Long) {
+    private fun raiseAlarms(
+        batteries: List<BatteryState>,
+        alarms: List<List<Alarm>>,
+        now: Long,
+        skip: (Alarm) -> Boolean,
+    ) {
         for (i in batteries.indices) {
             val active = alarms[i]
+            // Alarms that sound the siren get the full-screen siren notification instead.
             val fresh = active.filter { a ->
-                a.key !in activeAlarms[i] && now - (lastNotified["$i:${a.key}"] ?: 0L) > RENOTIFY_AFTER_MS
+                !skip(a) && a.key !in activeAlarms[i] && now - (lastNotified["$i:${a.key}"] ?: 0L) > RENOTIFY_AFTER_MS
             }
             activeAlarms[i] = active.map { it.key }.toSet()
             if (fresh.isNotEmpty()) {

@@ -16,6 +16,15 @@ An Android app that stays connected over Bluetooth to **three JBD (Jiabaida / "X
 
 **Battery detail screen** (tap a card): per-cell voltage bars, every BMS protection flag, each temperature sensor, hardware and software version, manufacture date, signal strength, reconnect count.
 
+## Siren
+
+For a BMS fault, the app sounds a **loud wailing siren that keeps going until you press Silence**:
+- The siren plays through the **alarm** volume, like an alarm clock, so it still sounds in silent mode. By default it turns the alarm volume up to maximum while it sounds and puts it back afterwards. Phones also vibrate.
+- A full-screen red alarm page wakes the screen, even when it's locked, and shows which battery has which fault, with a big **SILENCE ALARM** button. The notification has a **Silence** button too.
+- The siren keeps sounding even if the fault clears, until someone silences it. A *new* fault, or a fault that clears and comes back, sets it off again.
+- It sounds for BMS protections, a switched-off discharge MOSFET and high temperature. You can turn on **Siren for warnings too** to include low charge, low temperature, cell imbalance and a battery that stays disconnected.
+- Use **Settings → Siren → Test siren** to hear it.
+
 ## Alarms
 
 The app raises a notification with sound when an alarm starts:

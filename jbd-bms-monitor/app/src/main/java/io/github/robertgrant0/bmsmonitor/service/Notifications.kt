@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import io.github.robertgrant0.bmsmonitor.AlarmActivity
 import io.github.robertgrant0.bmsmonitor.MainActivity
 import io.github.robertgrant0.bmsmonitor.Permissions
 import io.github.robertgrant0.bmsmonitor.R
@@ -21,7 +22,9 @@ import java.util.Locale
 object Notifications {
     const val CHANNEL_MONITOR = "monitor"
     const val CHANNEL_ALARMS = "alarms"
+    const val CHANNEL_SIREN = "siren"
     const val ID_MONITOR = 1
+    private const val ID_SIREN = 50
     private const val ID_ALARM_BASE = 100
 
     fun createChannels(ctx: Context) {
@@ -38,6 +41,55 @@ object Notifications {
                 enableVibration(true)
             },
         )
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL_SIREN, "Battery siren", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Full-screen alarm while the siren sounds (the siren plays its own sound)"
+                setSound(null, null)
+                enableVibration(false)
+                setBypassDnd(true)
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            },
+        )
+    }
+
+    @SuppressLint("MissingPermission") // Checked with Permissions.canNotify.
+    fun postSiren(ctx: Context, messages: List<String>) {
+        if (!Permissions.canNotify(ctx)) return
+        val fullScreen = PendingIntent.getActivity(
+            ctx,
+            2,
+            Intent(ctx, AlarmActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val silence = PendingIntent.getBroadcast(
+            ctx,
+            3,
+            Intent(ctx, SilenceReceiver::class.java),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val notification = NotificationCompat.Builder(ctx, CHANNEL_SIREN)
+            .setSmallIcon(R.drawable.ic_stat_battery)
+            .setContentTitle("⚠ BATTERY ALARM")
+            .setContentText(messages.joinToString(", "))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(messages.joinToString("\n")))
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setColor(0xFFD50000.toInt())
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setContentIntent(fullScreen)
+            .setFullScreenIntent(fullScreen, true)
+            .addAction(0, "SILENCE", silence)
+            .build()
+        try {
+            NotificationManagerCompat.from(ctx).notify(ID_SIREN, notification)
+        } catch (_: SecurityException) {
+        }
+    }
+
+    fun cancelSiren(ctx: Context) {
+        NotificationManagerCompat.from(ctx).cancel(ID_SIREN)
     }
 
     private fun openAppIntent(ctx: Context): PendingIntent = PendingIntent.getActivity(
