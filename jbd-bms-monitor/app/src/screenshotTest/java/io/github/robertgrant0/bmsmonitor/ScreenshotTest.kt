@@ -2,11 +2,13 @@ package io.github.robertgrant0.bmsmonitor
 
 import android.app.Application
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.os.Handler
+import android.os.Looper
+import android.view.PixelCopy
+import androidx.activity.ComponentActivity
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.asAndroidBitmap
-import androidx.compose.ui.test.captureToImage
-import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import io.github.robertgrant0.bmsmonitor.bms.AlarmThresholds
 import io.github.robertgrant0.bmsmonitor.bms.Alarms
 import io.github.robertgrant0.bmsmonitor.bms.BankAnalysis
@@ -34,6 +36,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.io.File
@@ -50,7 +53,7 @@ import kotlin.math.sin
 @Config(sdk = [34], application = Application::class)
 class ScreenshotTest {
     @get:Rule
-    val compose = createComposeRule()
+    val compose = createAndroidComposeRule<ComponentActivity>()
 
     private val now = 1_762_400_000_000L
 
@@ -102,13 +105,30 @@ class ScreenshotTest {
     private val alarms = batteries.map { Alarms.evaluate(it, AlarmThresholds(), now) }
 
     private fun capture(name: String, dark: Boolean = true, content: @Composable () -> Unit) {
-        // The test clock keeps running so frames get drawn (captureToImage waits for one);
-        // the app's own animations are switched off and Compose pauses infinite ones in tests.
         compose.setContent {
             BmsTheme(dark = dark, fonts = InterFonts, animations = false) { content() }
         }
         compose.waitForIdle()
-        val bitmap = compose.onRoot().captureToImage().asAndroidBitmap()
+        // Compose's captureToImage() waits for a frame-commit callback that Robolectric never
+        // sends, so copy the window ourselves and run the test looper to deliver the result.
+        val activity = compose.activity
+        val window = activity.window
+        val view = window.decorView
+        val metrics = activity.resources.displayMetrics
+        val width = view.width.takeIf { it > 0 } ?: metrics.widthPixels
+        val height = view.height.takeIf { it > 0 } ?: metrics.heightPixels
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        var result = Int.MIN_VALUE
+        try {
+            PixelCopy.request(window, bitmap, { result = it }, Handler(Looper.getMainLooper()))
+            shadowOf(Looper.getMainLooper()).idle()
+        } catch (e: Throwable) {
+            println("PixelCopy failed (${e.message}); drawing the view directly")
+        }
+        if (result != PixelCopy.SUCCESS) {
+            println("PixelCopy result $result for $name; drawing the view directly")
+            view.draw(Canvas(bitmap))
+        }
         val dir = File("build/screenshots").apply { mkdirs() }
         FileOutputStream(File(dir, "$name.png")).use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
     }

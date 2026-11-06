@@ -71,6 +71,8 @@ android {
 
     if (screenshots) {
         testOptions.unitTests.isIncludeAndroidResources = true
+        // Render through Robolectric's native hardware pipeline so Compose graphics layers draw.
+        testOptions.unitTests.all { it.systemProperty("robolectric.pixelCopyRenderMode", "hardware") }
         sourceSets.getByName("test").java.srcDir("src/screenshotTest/java")
     }
 }
