@@ -56,7 +56,8 @@ fun DetailScreen(
     AuroraBackground(Modifier.fillMaxSize()) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val wide = maxWidth >= 900.dp
-            val side = if (maxWidth < 600.dp) 16.dp else 24.dp
+            val compact = maxWidth < 600.dp
+            val side = if (compact) 16.dp else 24.dp
             Column(
                 Modifier
                     .fillMaxSize()
@@ -64,7 +65,7 @@ fun DetailScreen(
                     .windowInsetsPadding(WindowInsets.safeDrawing)
                     .padding(start = side, end = side, top = 8.dp, bottom = 24.dp),
             ) {
-                DetailHeader(state, deviceName, now, onBack, compact = maxWidth < 600.dp)
+                DetailHeader(state, deviceName, now, onBack, compact = compact)
                 Spacer(Modifier.height(16.dp))
                 val b = state.basic
                 when {

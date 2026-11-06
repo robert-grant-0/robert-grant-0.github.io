@@ -80,6 +80,7 @@ fun HomeScreen(
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val phone = maxWidth < 600.dp
             val side = if (phone) 16.dp else 24.dp
+            val contentWidth = maxWidth - side * 2
             val cardWidth = if (phone) maxWidth - side * 2 else (maxWidth - side * 2 - 32.dp) / 3
             val statColumns = if (cardWidth < 330.dp && !phone) 2 else 4
             val statIcons = cardWidth >= 380.dp || statColumns == 2
@@ -93,7 +94,7 @@ fun HomeScreen(
                 Header(batteries, shunt, solar, now, compact = phone, onOpenSettings = onOpenSettings)
                 Spacer(Modifier.height(12.dp))
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { banners() }
-                BankHero(view, shunt, solar, history, now, maxWidth - side * 2, phone)
+                BankHero(view, shunt, solar, history, now, contentWidth, phone)
                 if (bankAlarms.isNotEmpty()) {
                     Spacer(Modifier.height(12.dp))
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
