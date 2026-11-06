@@ -5,6 +5,7 @@ import android.content.Context
 import io.github.robertgrant0.bmsmonitor.bms.Alarm
 import io.github.robertgrant0.bmsmonitor.bms.BmsManager
 import io.github.robertgrant0.bmsmonitor.bms.SirenLatch
+import io.github.robertgrant0.bmsmonitor.data.PowerHistory
 import io.github.robertgrant0.bmsmonitor.data.SettingsRepository
 import io.github.robertgrant0.bmsmonitor.service.Notifications
 import io.github.robertgrant0.bmsmonitor.service.SirenPlayer
@@ -25,6 +26,9 @@ class BmsApp : Application() {
 
     /** Bank-wide alarms (SmartShunt, solar charger, current sharing), computed by the service. */
     val bankAlarms = MutableStateFlow<List<Alarm>>(emptyList())
+
+    /** Recent bank and solar power for the home-screen chart (memory only). */
+    val history = PowerHistory()
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     override fun onCreate() {

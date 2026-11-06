@@ -18,6 +18,7 @@ import io.github.robertgrant0.bmsmonitor.bms.Alarms
 import io.github.robertgrant0.bmsmonitor.bms.BankAnalysis
 import io.github.robertgrant0.bmsmonitor.bms.BatteryState
 import io.github.robertgrant0.bmsmonitor.bms.SustainTracker
+import io.github.robertgrant0.bmsmonitor.ui.bankView
 import io.github.robertgrant0.bmsmonitor.bms.SirenLatch
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -106,6 +107,8 @@ class BmsService : Service() {
                 batteries, app.manager.shunt.value, app.manager.solar.value, settings.thresholds, now, bankTracker,
             )
             app.bankAlarms.value = bankAlarms
+            val bank = bankView(batteries, app.manager.shunt.value, app.manager.solar.value, now)
+            app.history.offer(now, bank.watts, bank.solarWatts)
 
             val notification = Notifications.monitor(this, batteries, alarms, now)
             val text = notification.extras.getCharSequence("android.bigText")?.toString()

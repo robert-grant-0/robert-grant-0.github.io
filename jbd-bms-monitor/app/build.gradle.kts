@@ -12,6 +12,10 @@ val buildNumber = providers.environmentVariable("BUILD_NUMBER").orNull?.toIntOrN
 fun env(name: String): String? = providers.environmentVariable(name).orNull?.takeIf { it.isNotBlank() }
 val releaseKeystore = env("BMS_KEYSTORE_FILE")?.let { file(it) }?.takeIf { it.exists() }
 
+// `-Pscreenshots` renders the screens to PNG with Robolectric (see src/screenshotTest).
+// Off by default so the normal build never depends on it.
+val screenshots = providers.gradleProperty("screenshots").isPresent
+
 android {
     namespace = "io.github.robertgrant0.bmsmonitor"
     compileSdk = 35
@@ -64,6 +68,11 @@ android {
         abortOnError = false
         checkReleaseBuilds = false
     }
+
+    if (screenshots) {
+        testOptions.unitTests.isIncludeAndroidResources = true
+        sourceSets.getByName("test").java.srcDir("src/screenshotTest/java")
+    }
 }
 
 dependencies {
@@ -83,4 +92,11 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 
     testImplementation("junit:junit:4.13.2")
+
+    if (screenshots) {
+        testImplementation(composeBom)
+        testImplementation("androidx.compose.ui:ui-test-junit4")
+        testImplementation("org.robolectric:robolectric:4.13")
+        debugImplementation("androidx.compose.ui:ui-test-manifest")
+    }
 }

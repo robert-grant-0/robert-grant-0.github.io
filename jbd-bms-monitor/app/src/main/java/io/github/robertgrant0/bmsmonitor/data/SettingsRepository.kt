@@ -8,59 +8,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-data class SlotConfig(
-    /** User-chosen label, e.g. "House battery". */
-    val name: String,
-    /** Bluetooth MAC address (upper case), or null if no BMS is assigned. */
-    val address: String? = null,
-    /** Bluetooth name the BMS advertised when it was picked. */
-    val deviceName: String? = null,
-)
-
-enum class ThemeMode { DARK, LIGHT, SYSTEM }
-
-enum class VictronKind(val prefKey: String, val label: String) {
-    SHUNT("shunt", "SmartShunt"),
-    SOLAR("solar", "Solar charger"),
-}
-
-data class VictronSlot(
-    val address: String? = null,
-    val deviceName: String? = null,
-    /** Instant Readout encryption key from VictronConnect (32 hex digits). Stays on this device. */
-    val key: String = "",
-)
-
-data class AppSettings(
-    val slots: List<SlotConfig> = List(BatteryState.SLOT_COUNT) { SlotConfig(defaultName(it)) },
-    /** Whether the background service should keep the batteries connected. */
-    val monitoringEnabled: Boolean = true,
-    val pollIntervalSec: Int = 2,
-    val keepScreenOn: Boolean = true,
-    /** Hold a wake lock so polling continues while the screen is off. */
-    val keepAwake: Boolean = true,
-    val startOnBoot: Boolean = true,
-    val alarmNotifications: Boolean = true,
-    /** Loud, repeating siren for BMS faults that keeps going until silenced. */
-    val sirenEnabled: Boolean = true,
-    /** Also sound the siren for warnings (low charge, imbalance, low temperature, disconnected…). */
-    val sirenForWarnings: Boolean = false,
-    /** Turn the alarm volume up to maximum while the siren sounds. */
-    val sirenFullVolume: Boolean = true,
-    val thresholds: AlarmThresholds = AlarmThresholds(),
-    val theme: ThemeMode = ThemeMode.DARK,
-    val shunt: VictronSlot = VictronSlot(),
-    val solar: VictronSlot = VictronSlot(),
-) {
-    fun victron(kind: VictronKind): VictronSlot = if (kind == VictronKind.SHUNT) shunt else solar
-
-    fun slotName(slot: Int): String = slots[slot].name.ifBlank { defaultName(slot) }
-
-    companion object {
-        fun defaultName(slot: Int) = "Battery ${slot + 1}"
-    }
-}
-
 class SettingsRepository(context: Context) {
     private val prefs = context.getSharedPreferences("bms_settings", Context.MODE_PRIVATE)
     private val _state = MutableStateFlow(load())
@@ -75,29 +22,14 @@ class SettingsRepository(context: Context) {
         _state.value = next
     }
 
-    fun updateSlot(slot: Int, transform: (SlotConfig) -> SlotConfig) = update { s ->
-        s.copy(slots = s.slots.mapIndexed { i, c -> if (i == slot) transform(c) else c })
-    }
+    fun updateSlot(slot: Int, transform: (SlotConfig) -> SlotConfig) = update { it.withSlot(slot, transform) }
 
     /** Assigns a BMS to [slot], removing it from any other slot so it is never connected twice. */
-    fun assignDevice(slot: Int, address: String, deviceName: String?) = update { s ->
-        s.copy(
-            slots = s.slots.mapIndexed { i, c ->
-                when {
-                    i == slot -> c.copy(address = address, deviceName = deviceName)
-                    c.address == address -> c.copy(address = null, deviceName = null)
-                    else -> c
-                }
-            },
-        )
-    }
+    fun assignDevice(slot: Int, address: String, deviceName: String?) =
+        update { it.withDevice(slot, address, deviceName) }
 
-    fun updateVictron(kind: VictronKind, transform: (VictronSlot) -> VictronSlot) = update { s ->
-        when (kind) {
-            VictronKind.SHUNT -> s.copy(shunt = transform(s.shunt))
-            VictronKind.SOLAR -> s.copy(solar = transform(s.solar))
-        }
-    }
+    fun updateVictron(kind: VictronKind, transform: (VictronSlot) -> VictronSlot) =
+        update { it.withVictron(kind, transform) }
 
     private fun loadVictron(kind: VictronKind) = VictronSlot(
         address = prefs.getString("${kind.prefKey}_address", null),
@@ -143,6 +75,7 @@ class SettingsRepository(context: Context) {
             shunt = loadVictron(VictronKind.SHUNT),
             solar = loadVictron(VictronKind.SOLAR),
             theme = ThemeMode.entries.firstOrNull { it.name == prefs.getString("theme", null) } ?: d.theme,
+            animations = prefs.getBoolean("animations", d.animations),
         )
     }
 
@@ -183,6 +116,7 @@ class SettingsRepository(context: Context) {
                 putString("${kind.prefKey}_key", v.key)
             }
             putString("theme", s.theme.name)
+            putBoolean("animations", s.animations)
         }
     }
 }

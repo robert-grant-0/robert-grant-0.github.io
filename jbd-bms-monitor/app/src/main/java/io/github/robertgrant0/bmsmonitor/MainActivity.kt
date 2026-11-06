@@ -54,6 +54,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.robertgrant0.bmsmonitor.bms.Alarms
+import io.github.robertgrant0.bmsmonitor.bms.BankAnalysis
 import io.github.robertgrant0.bmsmonitor.bms.VictronProtocol
 import io.github.robertgrant0.bmsmonitor.data.AppSettings
 import io.github.robertgrant0.bmsmonitor.data.VictronKind
@@ -62,7 +63,9 @@ import io.github.robertgrant0.bmsmonitor.ui.Banner
 import io.github.robertgrant0.bmsmonitor.ui.BmsTheme
 import io.github.robertgrant0.bmsmonitor.ui.DetailScreen
 import io.github.robertgrant0.bmsmonitor.ui.HomeScreen
-import io.github.robertgrant0.bmsmonitor.ui.LocalStatusColors
+import io.github.robertgrant0.bmsmonitor.ui.LocalPalette
+import io.github.robertgrant0.bmsmonitor.ui.InterFonts
+import io.github.robertgrant0.bmsmonitor.ui.WelcomeScreen
 import io.github.robertgrant0.bmsmonitor.ui.ScanDialog
 import io.github.robertgrant0.bmsmonitor.ui.SettingsScreen
 import io.github.robertgrant0.bmsmonitor.ui.isDarkTheme
@@ -94,7 +97,7 @@ class MainActivity : ComponentActivity() {
                     window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 }
             }
-            BmsTheme(dark) {
+            BmsTheme(dark, InterFonts, animations = settings.animations) {
                 AppRoot(app, settings)
             }
         }
@@ -115,7 +118,8 @@ private fun AppRoot(app: BmsApp, settings: AppSettings) {
     ) { hasPermissions = Permissions.hasRequired(context) }
 
     if (!hasPermissions) {
-        PermissionScreen(
+        WelcomeScreen(
+            locationWording = Build.VERSION.SDK_INT < Build.VERSION_CODES.S,
             onGrant = { permissionLauncher.launch(Permissions.required + Permissions.optional) },
             onOpenAppSettings = { openAppSettings(context) },
         )
@@ -131,6 +135,7 @@ private fun AppRoot(app: BmsApp, settings: AppSettings) {
     val shunt by app.manager.shunt.collectAsStateWithLifecycle()
     val solar by app.manager.solar.collectAsStateWithLifecycle()
     val bankAlarms by app.bankAlarms.collectAsStateWithLifecycle()
+    val history by app.history.samples.collectAsStateWithLifecycle()
     var victronScan by rememberSaveable { mutableStateOf<VictronKind?>(null) }
     val now by produceState(System.currentTimeMillis()) {
         while (true) {
@@ -167,6 +172,7 @@ private fun AppRoot(app: BmsApp, settings: AppSettings) {
             state = batteries[detailSlot],
             alarms = alarms[detailSlot],
             deviceName = settings.slots[detailSlot].deviceName,
+            share = BankAnalysis.currentShares(batteries, now)?.getOrNull(detailSlot),
             now = now,
             onBack = { screen = Screen.HOME },
         )
@@ -174,17 +180,17 @@ private fun AppRoot(app: BmsApp, settings: AppSettings) {
         Screen.SETTINGS -> SettingsScreen(
             settings = settings,
             batteries = batteries,
-            repo = app.settings,
+            victronStates = mapOf(VictronKind.SHUNT to shunt, VictronKind.SOLAR to solar),
             unrestrictedBackground = unrestricted,
-            versionName = remember { appVersion(context) },
-            onRequestUnrestricted = { requestUnrestricted(context) },
             fullScreenAlarmAllowed = fullScreenAllowed,
+            versionName = remember { appVersion(context) },
+            onUpdate = { transform -> app.settings.update(transform) },
+            onChooseDevice = { scanSlot = it },
+            onChooseVictron = { victronScan = it },
+            onRequestUnrestricted = { requestUnrestricted(context) },
             onAllowFullScreenAlarm = { requestFullScreenAlarms(context) },
             onTestSiren = { app.siren.test() },
             onSilenceSiren = { app.siren.silence() },
-            onChooseDevice = { scanSlot = it },
-            victronStates = mapOf(VictronKind.SHUNT to shunt, VictronKind.SOLAR to solar),
-            onChooseVictron = { victronScan = it },
             onBack = { screen = Screen.HOME },
         )
 
@@ -196,12 +202,15 @@ private fun AppRoot(app: BmsApp, settings: AppSettings) {
             shunt = shunt,
             solar = solar,
             bankAlarms = bankAlarms,
+            history = history,
             banners = {
-                val status = LocalStatusColors.current
+                val pal = LocalPalette.current
+                val spacing = Modifier.padding(bottom = 12.dp)
                 if (!bluetoothOn) {
                     Banner(
                         "Bluetooth is off – the batteries can't be reached.",
-                        status.alarm,
+                        pal.red,
+                        spacing,
                         actionLabel = "Turn on",
                         onAction = {
                             try {
@@ -214,7 +223,8 @@ private fun AppRoot(app: BmsApp, settings: AppSettings) {
                 if (!settings.monitoringEnabled) {
                     Banner(
                         "Monitoring is stopped.",
-                        status.warning,
+                        pal.orange,
+                        spacing,
                         actionLabel = "Start",
                         onAction = { app.settings.update { it.copy(monitoringEnabled = true) } },
                     )
@@ -222,7 +232,8 @@ private fun AppRoot(app: BmsApp, settings: AppSettings) {
                 if (!unrestricted && !hideBatteryBanner) {
                     Banner(
                         "For a constant connection, allow the app to run in the background without restrictions.",
-                        status.warning,
+                        pal.orange,
+                        spacing,
                         actionLabel = "Allow",
                         onAction = { requestUnrestricted(context) },
                         dismissLabel = "Not now",
@@ -268,36 +279,6 @@ private fun AppRoot(app: BmsApp, settings: AppSettings) {
                 scanSlot = null
             },
         )
-    }
-}
-
-@Composable
-private fun PermissionScreen(onGrant: () -> Unit, onOpenAppSettings: () -> Unit) {
-    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-        Column(
-            Modifier
-                .fillMaxSize()
-                .systemBarsPadding()
-                .padding(32.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-        ) {
-            Text("Battery Monitor", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(16.dp))
-            Text(
-                "To find your JBD battery BMS units and stay connected to them, the app needs " +
-                    "permission to use Bluetooth" +
-                    (if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) " (Android calls this “Location” on this version)" else "") +
-                    ". Notifications are used for battery alarms.",
-                textAlign = TextAlign.Center,
-                style = MaterialTheme.typography.bodyLarge,
-                modifier = Modifier.widthIn(max = 520.dp),
-            )
-            Spacer(Modifier.height(24.dp))
-            Button(onClick = onGrant) { Text("Allow Bluetooth access") }
-            Spacer(Modifier.height(8.dp))
-            TextButton(onClick = onOpenAppSettings) { Text("Open app settings") }
-        }
     }
 }
 

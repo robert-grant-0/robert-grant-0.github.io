@@ -2,6 +2,8 @@ package io.github.robertgrant0.bmsmonitor.ui
 
 import io.github.robertgrant0.bmsmonitor.bms.BasicInfo
 import io.github.robertgrant0.bmsmonitor.bms.BatteryState
+import io.github.robertgrant0.bmsmonitor.bms.VictronDeviceState
+import io.github.robertgrant0.bmsmonitor.bms.VictronProtocol
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToLong
@@ -22,7 +24,24 @@ object Fmt {
 
     fun volts(v: Double) = f("%.2f V", v)
 
-    fun amps(a: Double) = if (abs(a) < 0.005) "0.00 A" else f("%+.2f A", a)
+    /** "+12.35" / "−8.20" with a true minus sign. */
+    fun signed(v: Double, decimals: Int): String {
+        val s = f("%.${decimals}f", abs(v))
+        val zero = s.all { it == '0' || it == '.' }
+        return when {
+            zero -> s
+            v > 0 -> "+$s"
+            else -> "\u2212$s"
+        }
+    }
+
+    fun amps(a: Double) = "${signed(a, 2)} A"
+
+    fun signedWatts(w: Double): String = when {
+        abs(w) >= 10_000 -> "${signed(w / 1000, 1)} kW"
+        abs(w) >= 1_000 -> "${signed(w / 1000, 2)} kW"
+        else -> "${signed(w, 0)} W"
+    }
 
     fun watts(w: Double) = when {
         abs(w) >= 10_000 -> f("%.1f kW", w / 1000)
@@ -60,13 +79,13 @@ object Fmt {
     }
 }
 
-/** "3h 20m to full" / "5h 2m to empty" / null when idle or unknown. */
+/** "Full in 3h 20m" / "Empty in 5h 2m" / null when idle or unknown. */
 fun timeEstimate(b: BasicInfo): String? = when (powerFlow(b.current)) {
     PowerFlow.CHARGING -> {
         val missing = (b.nominalCapacity - b.remainingCapacity).coerceAtLeast(0.0)
-        "${Fmt.hours(missing / b.current)} to full"
+        "Full in ${Fmt.hours(missing / b.current)}"
     }
-    PowerFlow.DISCHARGING -> "${Fmt.hours(b.remainingCapacity / -b.current)} to empty"
+    PowerFlow.DISCHARGING -> "Empty in ${Fmt.hours(b.remainingCapacity / -b.current)}"
     PowerFlow.IDLE -> null
 }
 
@@ -92,8 +111,8 @@ fun bankSummary(batteries: List<BatteryState>, now: Long): BankSummary {
     val power = live.sumOf { it.power }
     val soc = if (nominalWh > 0) ((remainingWh / nominalWh) * 100).roundToLong().toInt().coerceIn(0, 100) else null
     val estimate = when {
-        power > 5 -> "${Fmt.hours((nominalWh - remainingWh).coerceAtLeast(0.0) / power)} to full"
-        power < -5 -> "${Fmt.hours(remainingWh / -power)} to empty"
+        power > 5 -> "Full in ${Fmt.hours((nominalWh - remainingWh).coerceAtLeast(0.0) / power)}"
+        power < -5 -> "Empty in ${Fmt.hours(remainingWh / -power)}"
         else -> null
     }
     return BankSummary(
@@ -105,5 +124,92 @@ fun bankSummary(batteries: List<BatteryState>, now: Long): BankSummary {
         nominalAh = nominalAh,
         socPercent = soc,
         estimate = estimate,
+    )
+}
+
+/** Everything the bank summary at the top of the home screen shows. */
+data class BankView(
+    val soc: Int?,
+    val watts: Double?,
+    val amps: Double?,
+    val volts: Double?,
+    val remainingAh: Double?,
+    val capacityAh: Double?,
+    val estimate: String?,
+    val fromShunt: Boolean,
+    val solarWatts: Double?,
+    val solarState: String?,
+    val solarTodayKwh: Double?,
+    val otherWatts: Double?,
+    val liveBatteries: Int,
+    val configuredBatteries: Int,
+)
+
+fun bankView(
+    batteries: List<BatteryState>,
+    shunt: VictronDeviceState,
+    solar: VictronDeviceState,
+    now: Long,
+): BankView {
+    val s = bankSummary(batteries, now)
+    val configured = batteries.filter { it.isConfigured }
+    val allLive = configured.isNotEmpty() && configured.all { it.isLive(now) }
+    val liveInfo = configured.filter { it.isLive(now) }.map { it.basic!! }
+    val bmsVolts = if (liveInfo.isEmpty()) null else liveInfo.map { it.totalVoltage }.average()
+    // Capacity is known from the BMS units even when a battery is momentarily offline.
+    val capacity = configured.mapNotNull { it.basic?.nominalCapacity }.takeIf { it.isNotEmpty() }?.sum()
+
+    val sh = shunt.shunt?.takeIf { shunt.isLive(now) }
+    val pv = solar.solar?.takeIf { solar.isLive(now) }
+
+    val soc: Int?
+    val amps: Double?
+    val volts: Double?
+    val remaining: Double?
+    var estimate: String?
+    if (sh != null && sh.current != null && sh.voltage != null) {
+        soc = sh.stateOfCharge?.let { Math.round(it).toInt() } ?: s.socPercent
+        amps = sh.current
+        volts = sh.voltage
+        val consumed = sh.consumedAh
+        remaining = if (capacity != null && consumed != null) (capacity + consumed).coerceAtLeast(0.0) else null
+        val i: Double = sh.current
+        val minutes = sh.remainingMinutes
+        estimate = when {
+            i < -IDLE_CURRENT_A && minutes != null -> "Empty in ${Fmt.hours(minutes / 60.0)}"
+            i > IDLE_CURRENT_A && capacity != null && remaining != null ->
+                "Full in ${Fmt.hours((capacity - remaining).coerceAtLeast(0.0) / i)}"
+            else -> null
+        }
+        if (estimate == null && i < -IDLE_CURRENT_A) estimate = s.estimate
+    } else {
+        soc = s.socPercent
+        amps = if (s.liveCount > 0) s.current else null
+        volts = bmsVolts
+        remaining = if (s.liveCount > 0) s.remainingAh else null
+        estimate = s.estimate
+    }
+    val watts = if (amps != null && volts != null) amps * volts else null
+
+    // Whatever isn't solar: mostly the DC-DC chargers (positive) or loads (negative).
+    val bankAmps = sh?.current ?: if (allLive) s.current else null
+    val otherAmps = if (bankAmps != null && pv?.batteryCurrent != null) bankAmps - pv.batteryCurrent else null
+    val refVolts = volts ?: pv?.batteryVoltage
+
+    return BankView(
+        soc = soc,
+        watts = watts,
+        amps = amps,
+        volts = volts,
+        remainingAh = remaining,
+        capacityAh = capacity,
+        estimate = estimate,
+        fromShunt = sh != null,
+        solarWatts = pv?.solarPower?.toDouble(),
+        solarState = pv?.let { VictronProtocol.chargeStateName(it.chargeState) },
+        solarTodayKwh = pv?.yieldTodayWh?.let { it / 1000.0 },
+        otherWatts = if (otherAmps != null && refVolts != null) otherAmps * refVolts else null,
+        liveBatteries = s.liveCount,
+        configuredBatteries = s.configuredCount,
     )
 }

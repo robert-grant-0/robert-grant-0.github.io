@@ -10,6 +10,16 @@ import android.bluetooth.le.ScanSettings
 import android.location.LocationManager
 import android.os.Build
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.material3.Icon
+import androidx.compose.material3.CheckboxDefaults
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -24,13 +34,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -45,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.location.LocationManagerCompat
@@ -138,130 +144,169 @@ fun ScanDialog(
     val list = found.values
         .filter { showAll || it.name != null }
         .sortedWith(compareByDescending<FoundDevice> { it.likelyBms }.thenByDescending { it.rssi })
+    val pal = LocalPalette.current
+    val shape = RoundedCornerShape(28.dp)
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(
-            shape = RoundedCornerShape(24.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            modifier = Modifier
-                .widthIn(max = 600.dp)
-                .fillMaxWidth(0.94f),
+        Column(
+            Modifier
+                .widthIn(max = 620.dp)
+                .fillMaxWidth(0.94f)
+                .clip(shape)
+                .background(Brush.verticalGradient(listOf(pal.card1, pal.card2)))
+                .border(1.dp, pal.line, shape)
+                .padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    if (victronRecord != null) "Choose your $slotName" else "Choose the BMS for $slotName",
-                    style = MaterialTheme.typography.headlineSmall,
-                )
-                Text(
-                    if (victronRecord != null) {
-                        "Only Victron devices of this type are listed. If yours is missing, turn on Bluetooth " +
-                            "and Instant Readout for it in VictronConnect."
-                    } else {
-                        "A BMS only shows up while nothing else is connected to it – close the Xiaoxiang / " +
-                            "JBD app on other phones first. Likely BMS units are listed first."
-                    },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                if (locationOff) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (scanning) {
+                    RadarPulse(pal.green)
+                } else {
+                    Box(
+                        Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(pal.green.copy(alpha = 0.12f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(AppIcons.Bluetooth, null, tint = pal.green, modifier = Modifier.size(22.dp))
+                    }
+                }
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
                     Text(
-                        "Location is turned off. On this Android version Bluetooth scanning needs Location on.",
-                        color = LocalStatusColors.current.warning,
-                        style = MaterialTheme.typography.bodyMedium,
+                        if (victronRecord != null) "Choose your $slotName" else "Choose the BMS for $slotName",
+                        style = Type.title(22.sp),
+                        color = pal.t1,
+                    )
+                    Text(
+                        if (scanning) "Searching nearby…" else "${found.size} device${if (found.size == 1) "" else "s"} found",
+                        style = Type.text(13.sp),
+                        color = pal.t2,
                     )
                 }
-                error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
-                if (scanning) {
-                    LinearProgressIndicator(Modifier.fillMaxWidth())
+            }
+            Text(
+                if (victronRecord != null) {
+                    "Only Victron devices of this type are listed. If yours is missing, turn on Bluetooth " +
+                        "and Instant Readout for it in VictronConnect."
                 } else {
-                    Spacer(Modifier.height(4.dp))
-                }
+                    "A BMS only shows up while nothing else is connected to it – close the Xiaoxiang / " +
+                        "JBD app on other phones first. Likely BMS units are listed first."
+                },
+                style = Type.text(13.5.sp),
+                color = pal.t2,
+            )
+            if (locationOff) {
+                Banner("Location is off. On this Android version Bluetooth scanning needs Location on.", pal.orange)
+            }
+            error?.let { Banner(it, pal.red) }
 
-                Column(
-                    Modifier
-                        .heightIn(max = 340.dp)
-                        .verticalScroll(rememberScrollState()),
-                ) {
-                    if (list.isEmpty()) {
-                        Text(
-                            if (scanning) "Searching…" else "Nothing found.",
-                            modifier = Modifier.padding(vertical = 16.dp),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    list.forEachIndexed { index, d ->
-                        if (index > 0) HorizontalDivider()
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .clickable { onPick(d.address, d.name) }
-                                .padding(vertical = 10.dp, horizontal = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column(Modifier.weight(1f)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        d.name ?: "(no name)",
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        fontWeight = if (d.likelyBms) FontWeight.SemiBold else FontWeight.Normal,
-                                    )
-                                    if (d.likelyBms) {
-                                        Spacer(Modifier.width(8.dp))
-                                        Pill(if (victronRecord != null) "Victron" else "BMS", MaterialTheme.colorScheme.primary)
-                                    }
-                                }
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 340.dp)
+                    .well(pal, 18.dp)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                if (list.isEmpty()) {
+                    Text(
+                        if (scanning) "Looking for devices…" else "Nothing found. Make sure the device is powered and in range.",
+                        style = Type.text(14.sp),
+                        color = pal.t3,
+                        modifier = Modifier.padding(18.dp),
+                    )
+                }
+                list.forEachIndexed { index, d ->
+                    if (index > 0) GroupDivider()
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { onPick(d.address, d.name) }
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    d.address + (assigned[d.address]?.let { " · currently $it" } ?: ""),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    d.name ?: "(no name)",
+                                    style = Type.text(15.sp, if (d.likelyBms) FontWeight.SemiBold else FontWeight.Normal),
+                                    color = pal.t1,
+                                    maxLines = 1,
                                 )
+                                if (d.likelyBms) {
+                                    Spacer(Modifier.width(8.dp))
+                                    Pill(if (victronRecord != null) "Victron" else "BMS", pal.green)
+                                }
                             }
                             Text(
-                                "${d.rssi} dBm",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                d.address + (assigned[d.address]?.let { " · currently $it" } ?: ""),
+                                style = Type.figures(12.sp, FontWeight.Normal),
+                                color = pal.t3,
                             )
                         }
+                        SignalBars(d.rssi)
+                        Spacer(Modifier.width(8.dp))
+                        Text("${d.rssi} dBm", style = Type.figures(12.sp, FontWeight.Medium), color = pal.t2)
                     }
                 }
+            }
 
-                Row(
-                    Modifier.clickable { showAll = !showAll },
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Checkbox(checked = showAll, onCheckedChange = { showAll = it })
-                    Text("Show devices without a name", style = MaterialTheme.typography.bodyMedium)
-                }
+            Row(
+                Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable { showAll = !showAll }
+                    .padding(end = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Checkbox(
+                    checked = showAll,
+                    onCheckedChange = { showAll = it },
+                    colors = CheckboxDefaults.colors(checkedColor = pal.green, uncheckedColor = pal.t3, checkmarkColor = pal.onAccent),
+                )
+                Text("Show devices without a name", style = Type.text(14.sp), color = pal.t2)
+            }
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(
-                        value = manual,
-                        onValueChange = { manual = it.uppercase().trim().take(17) },
-                        label = { Text("Or type the MAC address") },
-                        placeholder = { Text("A4:C1:38:00:00:00") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    TextButton(
-                        onClick = { onPick(manual, null) },
-                        enabled = BluetoothAdapter.checkBluetoothAddress(manual),
-                    ) { Text("Use") }
-                }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = manual,
+                    onValueChange = { manual = it.uppercase().trim().take(17) },
+                    label = { Text("Or type the MAC address") },
+                    placeholder = { Text("A4:C1:38:00:00:00") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(14.dp),
+                    textStyle = Type.figures(15.sp, FontWeight.Medium),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = pal.t1,
+                        unfocusedTextColor = pal.t1,
+                        focusedContainerColor = pal.well,
+                        unfocusedContainerColor = pal.well,
+                        focusedBorderColor = pal.green,
+                        unfocusedBorderColor = pal.line,
+                        focusedLabelColor = pal.green,
+                        unfocusedLabelColor = pal.t3,
+                        cursorColor = pal.green,
+                    ),
+                    modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(10.dp))
+                PillButton("Use", { onPick(manual, null) }, enabled = BluetoothAdapter.checkBluetoothAddress(manual))
+            }
 
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    TextButton(onClick = onDismiss) { Text("Cancel") }
-                    Spacer(Modifier.width(8.dp))
-                    TextButton(
-                        onClick = {
-                            error = null
-                            found.clear()
-                            round++
-                            scanning = true
-                        },
-                        enabled = !scanning,
-                    ) { Text("Scan again") }
-                }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                PillButton("Cancel", onDismiss, color = pal.t2)
+                Spacer(Modifier.width(10.dp))
+                PillButton(
+                    "Scan again",
+                    {
+                        error = null
+                        found.clear()
+                        round++
+                        scanning = true
+                    },
+                    filled = true,
+                    enabled = !scanning,
+                )
             }
         }
     }
