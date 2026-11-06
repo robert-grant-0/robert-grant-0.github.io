@@ -32,7 +32,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -54,6 +53,7 @@ import io.github.robertgrant0.bmsmonitor.bms.LinkState
 import io.github.robertgrant0.bmsmonitor.bms.Severity
 import io.github.robertgrant0.bmsmonitor.bms.VictronDeviceState
 import io.github.robertgrant0.bmsmonitor.bms.VictronStatus
+import io.github.robertgrant0.bmsmonitor.data.FlowUnit
 import io.github.robertgrant0.bmsmonitor.data.PowerSample
 import java.util.Locale
 
@@ -70,6 +70,7 @@ fun HomeScreen(
     now: Long,
     cellDeltaWarnMv: Int?,
     banners: @Composable ColumnScope.() -> Unit,
+    unit: FlowUnit = FlowUnit.WATTS,
     onOpenDetail: (Int) -> Unit,
     onSetup: (Int) -> Unit,
     onOpenSettings: () -> Unit,
@@ -83,7 +84,7 @@ fun HomeScreen(
             val contentWidth = maxWidth - side * 2
             val cardWidth = if (phone) maxWidth - side * 2 else (maxWidth - side * 2 - 32.dp) / 3
             val statColumns = if (cardWidth < 330.dp && !phone) 2 else 4
-            val statIcons = cardWidth >= 380.dp || statColumns == 2
+            val statIcons = cardWidth >= 400.dp || statColumns == 2
             Column(
                 Modifier
                     .fillMaxSize()
@@ -94,7 +95,7 @@ fun HomeScreen(
                 Header(batteries, shunt, solar, now, compact = phone, onOpenSettings = onOpenSettings)
                 Spacer(Modifier.height(12.dp))
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { banners() }
-                BankHero(view, shunt, solar, history, now, contentWidth, phone)
+                BankHero(view, unit, shunt, solar, history, now, contentWidth, phone)
                 if (bankAlarms.isNotEmpty()) {
                     Spacer(Modifier.height(12.dp))
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -190,6 +191,7 @@ private fun victronDot(p: Palette, d: VictronDeviceState, now: Long): Color = wh
 @Composable
 private fun BankHero(
     view: BankView,
+    unit: FlowUnit,
     shunt: VictronDeviceState,
     solar: VictronDeviceState,
     history: List<PowerSample>,
@@ -203,14 +205,14 @@ private fun BankHero(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 SocRing(view.soc, 124.dp, caption = "Bank")
                 Spacer(Modifier.width(14.dp))
-                HeroMetrics(view, compact = true)
+                HeroMetrics(view, unit, compact = true)
             }
             if (showFlow) {
                 Spacer(Modifier.height(14.dp))
-                FlowWell(view, Modifier.fillMaxWidth())
+                FlowWell(view, unit, Modifier.fillMaxWidth())
             }
             Spacer(Modifier.height(12.dp))
-            ChartWell(history, now, Modifier.fillMaxWidth())
+            ChartWell(history, now, unit, Modifier.fillMaxWidth())
         } else {
             val wide = width >= 1100.dp
             Row(
@@ -221,14 +223,14 @@ private fun BankHero(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 SocRing(view.soc, if (wide) 160.dp else 140.dp, caption = if (view.fromShunt) "Bank · Shunt" else "Bank")
-                HeroMetrics(view, compact = false, modifier = Modifier.widthIn(min = 230.dp))
+                HeroMetrics(view, unit, compact = false, modifier = Modifier.widthIn(min = 230.dp))
                 when {
                     wide && showFlow -> {
-                        FlowWell(view, Modifier.width(330.dp).fillMaxHeight())
-                        ChartWell(history, now, Modifier.weight(1f).fillMaxHeight())
+                        FlowWell(view, unit, Modifier.width(330.dp).fillMaxHeight())
+                        ChartWell(history, now, unit, Modifier.weight(1f).fillMaxHeight())
                     }
-                    showFlow -> FlowWell(view, Modifier.weight(1f).fillMaxHeight())
-                    else -> ChartWell(history, now, Modifier.weight(1f).fillMaxHeight())
+                    showFlow -> FlowWell(view, unit, Modifier.weight(1f).fillMaxHeight())
+                    else -> ChartWell(history, now, unit, Modifier.weight(1f).fillMaxHeight())
                 }
             }
         }
@@ -236,40 +238,60 @@ private fun BankHero(
 }
 
 @Composable
-private fun HeroMetrics(view: BankView, compact: Boolean, modifier: Modifier = Modifier) {
+private fun HeroMetrics(view: BankView, unit: FlowUnit, compact: Boolean, modifier: Modifier = Modifier) {
     val p = LocalPalette.current
     val (state, color) = flowLabel(p, view.amps)
+    val amps = view.amps?.let { Fmt.amps(it) }
+    val watts = view.watts?.let { Fmt.signedWatts(it) }
+    val volts = view.volts?.let { Fmt.volts(it) }
+    val estimate = view.estimate ?: if (view.amps != null) "Idle" else null
+    val bigStyle = Type.number(if (compact) 36.sp else 44.sp)
+    val unitSize = if (compact) 17.sp else 20.sp
     Column(modifier, verticalArrangement = Arrangement.Center) {
         Pill(state, color, pulse = view.amps != null && kotlin.math.abs(view.amps) > IDLE_CURRENT_A)
         Spacer(Modifier.height(if (compact) 6.dp else 10.dp))
-        ValueUnit(
-            value = view.watts?.let { Fmt.signed(it, 0) } ?: "--",
-            unit = "W",
-            style = Type.number(if (compact) 36.sp else 44.sp),
-            unitSize = if (compact) 17.sp else 20.sp,
-        )
+        if (unit == FlowUnit.AMPS) {
+            ValueUnit(view.amps?.let { Fmt.signed(it, 1) } ?: "--", "A", bigStyle, unitSize)
+        } else {
+            ValueUnit(view.watts?.let { Fmt.signed(it, 0) } ?: "--", "W", bigStyle, unitSize)
+        }
         Text(
-            listOfNotNull(view.amps?.let { Fmt.amps(it) }, view.volts?.let { Fmt.volts(it) }).joinToString(" · ").ifEmpty { "Waiting for data" },
+            listOfNotNull(if (unit == FlowUnit.AMPS) watts else amps, volts).joinToString(" · ").ifEmpty { "Waiting for data" },
             style = Type.figures(if (compact) 14.sp else 15.sp, FontWeight.Normal),
             color = p.t2,
         )
-        Spacer(Modifier.height(if (compact) 10.dp else 14.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(if (compact) 18.dp else 26.dp)) {
-            Column {
-                Label("Remaining")
-                Spacer(Modifier.height(4.dp))
-                val rem = view.remainingAh
-                val cap = view.capacityAh
-                if (rem != null && cap != null) {
-                    ValueUnit(Math.round(rem).toString(), "of ${Math.round(cap)} Ah", Type.figures(15.sp), 15.sp, unitGap = " ")
-                } else {
-                    Text(rem?.let { Fmt.ah(it) } ?: "--", style = Type.figures(15.sp), color = p.t1)
-                }
+        Spacer(Modifier.height(if (compact) 8.dp else 14.dp))
+        val rem = view.remainingAh
+        val cap = view.capacityAh
+        if (compact) {
+            // One line on phones, where two side-by-side columns ran out of room.
+            val remaining = when {
+                rem != null && cap != null -> "${Math.round(rem)} of ${Math.round(cap)} Ah"
+                rem != null -> Fmt.ah(rem)
+                else -> null
             }
-            Column {
-                Label("Estimate")
-                Spacer(Modifier.height(4.dp))
-                Text(view.estimate ?: if (view.amps != null) "Idle" else "--", style = Type.figures(15.sp), color = p.t1, maxLines = 1)
+            Text(
+                listOfNotNull(remaining, estimate).joinToString(" · ").ifEmpty { "--" },
+                style = Type.figures(13.5.sp, FontWeight.Medium),
+                color = p.t1,
+                maxLines = 2,
+            )
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(26.dp)) {
+                Column {
+                    Label("Remaining")
+                    Spacer(Modifier.height(4.dp))
+                    if (rem != null && cap != null) {
+                        ValueUnit(Math.round(rem).toString(), "of ${Math.round(cap)} Ah", Type.figures(15.sp), 15.sp, unitGap = " ")
+                    } else {
+                        Text(rem?.let { Fmt.ah(it) } ?: "--", style = Type.figures(15.sp), color = p.t1)
+                    }
+                }
+                Column {
+                    Label("Estimate")
+                    Spacer(Modifier.height(4.dp))
+                    Text(estimate ?: "--", style = Type.figures(15.sp), color = p.t1, maxLines = 1)
+                }
             }
         }
     }
@@ -283,7 +305,7 @@ private fun flowLabel(p: Palette, amps: Double?): Pair<String, Color> = when {
 }
 
 @Composable
-private fun FlowWell(view: BankView, modifier: Modifier) {
+private fun FlowWell(view: BankView, unit: FlowUnit, modifier: Modifier) {
     val p = LocalPalette.current
     Column(
         modifier
@@ -299,37 +321,40 @@ private fun FlowWell(view: BankView, modifier: Modifier) {
         Spacer(Modifier.weight(1f))
         Spacer(Modifier.height(10.dp))
         EnergyFlow(
-            solarWatts = view.solarWatts,
+            solar = if (unit == FlowUnit.AMPS) view.solarAmps else view.solarWatts,
+            bank = if (unit == FlowUnit.AMPS) view.amps else view.watts,
+            other = if (unit == FlowUnit.AMPS) view.otherAmps else view.otherWatts,
+            unit = unit,
             solarCaption = view.solarState?.let { "Solar · $it" } ?: "Solar",
-            bankWatts = view.watts,
-            otherWatts = view.otherWatts,
         )
         Spacer(Modifier.weight(1f))
     }
 }
 
 @Composable
-private fun ChartWell(history: List<PowerSample>, now: Long, modifier: Modifier) {
+private fun ChartWell(history: List<PowerSample>, now: Long, unit: FlowUnit, modifier: Modifier) {
     val p = LocalPalette.current
-    val last = history.lastOrNull()
+    val amps = unit == FlowUnit.AMPS
+    val last = history.lastOrNull()?.let { if (amps) it.bankAmps else it.bankWatts }
     Column(
         modifier
             .well(p)
             .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Label("Bank power · last 3 h", Modifier.weight(1f))
+            Label(if (amps) "Bank current · last 3 h" else "Bank power · last 3 h", Modifier.weight(1f))
             if (last != null) {
+                val v = last.toDouble()
                 Text(
-                    "${Fmt.signedWatts(last.bankWatts.toDouble())} now",
+                    "${if (amps) Fmt.signedAmps(v) else Fmt.signedWatts(v)} now",
                     style = Type.figures(12.sp),
-                    color = if (last.bankWatts >= 0) p.green else p.sky,
+                    color = if (last >= 0) p.green else p.sky,
                 )
             }
         }
         Spacer(Modifier.weight(1f))
         Spacer(Modifier.height(10.dp))
-        PowerChart(history, now, CHART_WINDOW_MS)
+        PowerChart(history, now, CHART_WINDOW_MS, unit = unit)
         Spacer(Modifier.height(8.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             for (t in listOf("3 h ago", "2 h", "1 h", "Now")) {
@@ -543,8 +568,8 @@ private fun CardFooter(state: BatteryState, alarms: List<Alarm>, live: Boolean, 
             }
             !state.isConnected -> {
                 if (state.link == LinkState.CONNECTING || state.link == LinkState.DISCONNECTED) {
-                    CircularProgressIndicator(Modifier.size(14.dp), color = p.t2, strokeWidth = 2.dp)
-                    Spacer(Modifier.width(8.dp))
+                    StatusDot(if (state.link == LinkState.DISCONNECTED) p.orange else p.sky, pulse = true)
+                    Spacer(Modifier.width(4.dp))
                 }
                 Text(
                     state.statusText.ifBlank { "Not connected" } +
@@ -567,7 +592,7 @@ private fun CardFooter(state: BatteryState, alarms: List<Alarm>, live: Boolean, 
             Spacer(Modifier.width(8.dp))
         }
         val b = state.basic
-        if (b != null) {
+        if (b != null && live) {
             FetChip("CHG", b.chargeFetOn)
             Spacer(Modifier.width(6.dp))
             FetChip("DSG", b.dischargeFetOn)

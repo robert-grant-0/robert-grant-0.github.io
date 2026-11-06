@@ -53,6 +53,7 @@ import io.github.robertgrant0.bmsmonitor.bms.VictronDeviceState
 import io.github.robertgrant0.bmsmonitor.bms.VictronProtocol
 import io.github.robertgrant0.bmsmonitor.bms.VictronStatus
 import io.github.robertgrant0.bmsmonitor.data.AppSettings
+import io.github.robertgrant0.bmsmonitor.data.FlowUnit
 import io.github.robertgrant0.bmsmonitor.data.ThemeMode
 import io.github.robertgrant0.bmsmonitor.data.VictronKind
 import io.github.robertgrant0.bmsmonitor.data.VictronSlot
@@ -276,6 +277,14 @@ fun SettingsScreen(
                             options = listOf(ThemeMode.DARK to "Dark", ThemeMode.LIGHT to "Light", ThemeMode.SYSTEM to "Auto"),
                             selected = settings.theme,
                             onSelect = { mode -> onUpdate { it.copy(theme = mode) } },
+                        )
+                    }
+                    GroupDivider()
+                    SettingRow("Energy flow in", subtitle = "The bank headline, flow diagram and chart") {
+                        Segmented(
+                            options = listOf(FlowUnit.WATTS to "Watts", FlowUnit.AMPS to "Amps"),
+                            selected = settings.flowUnit,
+                            onSelect = { u -> onUpdate { it.copy(flowUnit = u) } },
                         )
                     }
                     GroupDivider()

@@ -4,8 +4,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-/** One point on the power chart. Watts; positive = into the batteries. */
-data class PowerSample(val time: Long, val bankWatts: Float, val solarWatts: Float?)
+/** One point on the power chart. Positive = into the batteries. */
+data class PowerSample(
+    val time: Long,
+    val bankWatts: Float,
+    val solarWatts: Float?,
+    val bankAmps: Float? = null,
+    val solarAmps: Float? = null,
+)
 
 /**
  * Recent bank (and solar) power for the home-screen chart. Kept in memory only:
@@ -21,11 +27,19 @@ class PowerHistory(
 
     /** Records a sample if at least [intervalMs] has passed since the last one. */
     @Synchronized
-    fun offer(time: Long, bankWatts: Double?, solarWatts: Double?) {
+    fun offer(
+        time: Long,
+        bankWatts: Double?,
+        solarWatts: Double?,
+        bankAmps: Double? = null,
+        solarAmps: Double? = null,
+    ) {
         if (bankWatts == null) return
         val last = buffer.lastOrNull()
         if (last != null && time - last.time < intervalMs) return
-        buffer.addLast(PowerSample(time, bankWatts.toFloat(), solarWatts?.toFloat()))
+        buffer.addLast(
+            PowerSample(time, bankWatts.toFloat(), solarWatts?.toFloat(), bankAmps?.toFloat(), solarAmps?.toFloat()),
+        )
         while (buffer.isNotEmpty() && time - buffer.first().time > keepMs) buffer.removeFirst()
         _samples.value = buffer.toList()
     }

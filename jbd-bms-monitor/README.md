@@ -8,6 +8,7 @@ An Android app that stays connected over Bluetooth to **three JBD (Jiabaida / "X
 - A state-of-charge ring for the whole bank, net power, current, voltage, remaining Ah and a "Full in…" / "Empty in…" estimate. With a SmartShunt these figures come from the shunt.
 - An **energy flow** diagram: solar → batteries ← DC-DC & loads. Moving particles show which way the energy is going.
 - A **power chart** of the last 3 hours: green above zero (charging), blue below (discharging), with solar as a gold line
+- All three can be shown in **amps instead of watts**: Settings → Appearance → Energy flow in
 
 **One card per battery (all 3 side by side)**
 - A battery that fills to its state of charge, rippling while it charges

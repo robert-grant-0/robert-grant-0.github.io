@@ -108,7 +108,7 @@ class BmsService : Service() {
             )
             app.bankAlarms.value = bankAlarms
             val bank = bankView(batteries, app.manager.shunt.value, app.manager.solar.value, now)
-            app.history.offer(now, bank.watts, bank.solarWatts)
+            app.history.offer(now, bank.watts, bank.solarWatts, bank.amps, bank.solarAmps)
 
             val notification = Notifications.monitor(this, batteries, alarms, now)
             val text = notification.extras.getCharSequence("android.bigText")?.toString()

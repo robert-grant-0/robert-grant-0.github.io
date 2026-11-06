@@ -76,6 +76,7 @@ class SettingsRepository(context: Context) {
             solar = loadVictron(VictronKind.SOLAR),
             theme = ThemeMode.entries.firstOrNull { it.name == prefs.getString("theme", null) } ?: d.theme,
             animations = prefs.getBoolean("animations", d.animations),
+            flowUnit = FlowUnit.entries.firstOrNull { it.name == prefs.getString("flow_unit", null) } ?: d.flowUnit,
         )
     }
 
@@ -117,6 +118,7 @@ class SettingsRepository(context: Context) {
             }
             putString("theme", s.theme.name)
             putBoolean("animations", s.animations)
+            putString("flow_unit", s.flowUnit.name)
         }
     }
 }

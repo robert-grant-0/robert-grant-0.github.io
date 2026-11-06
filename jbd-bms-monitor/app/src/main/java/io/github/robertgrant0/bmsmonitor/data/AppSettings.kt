@@ -14,6 +14,9 @@ data class SlotConfig(
 
 enum class ThemeMode { DARK, LIGHT, SYSTEM }
 
+/** Unit for the bank headline, the energy-flow diagram and the chart. */
+enum class FlowUnit { WATTS, AMPS }
+
 enum class VictronKind(val prefKey: String, val label: String) {
     SHUNT("shunt", "SmartShunt"),
     SOLAR("solar", "Solar charger"),
@@ -44,6 +47,7 @@ data class AppSettings(
     val sirenFullVolume: Boolean = true,
     val thresholds: AlarmThresholds = AlarmThresholds(),
     val theme: ThemeMode = ThemeMode.DARK,
+    val flowUnit: FlowUnit = FlowUnit.WATTS,
     /** Moving charge waves and energy-flow particles. Off saves power on slower tablets. */
     val animations: Boolean = true,
     val shunt: VictronSlot = VictronSlot(),

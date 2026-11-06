@@ -48,6 +48,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.github.robertgrant0.bmsmonitor.data.FlowUnit
 import io.github.robertgrant0.bmsmonitor.data.PowerSample
 import kotlin.math.PI
 import kotlin.math.abs
@@ -277,14 +278,15 @@ fun CellBars(
 
 /**
  * Solar → Batteries ← DC-DC & loads, with particles flowing in the direction of the
- * energy. Values in watts; positive bank/other = into the batteries.
+ * energy. All three values share one unit (W or A); positive bank/other = into the batteries.
  */
 @Composable
 fun EnergyFlow(
-    solarWatts: Double?,
+    solar: Double?,
+    bank: Double?,
+    other: Double?,
+    unit: FlowUnit,
     solarCaption: String,
-    bankWatts: Double?,
-    otherWatts: Double?,
     modifier: Modifier = Modifier,
 ) {
     val p = LocalPalette.current
@@ -292,6 +294,11 @@ fun EnergyFlow(
     val sun = rememberVectorPainter(AppIcons.Sun)
     val battery = rememberVectorPainter(AppIcons.BatteryCharging)
     val van = rememberVectorPainter(AppIcons.Van)
+    val amps = unit == FlowUnit.AMPS
+    val threshold = if (amps) 0.4 else 5.0
+    fun plain(v: Double) = if (amps) "${Fmt.signed(v, 1).trimStart('+')} A" else "${Math.round(v)} W"
+    fun signed(v: Double) = if (amps) Fmt.signedAmps(v, 1) else Fmt.signedWatts(v)
+    val bankColor = flowColor(p, bank, threshold)
     Column(modifier) {
         Canvas(
             Modifier
@@ -305,26 +312,25 @@ fun EnergyFlow(
             val rs = 20.dp.toPx()
             val rb = 26.dp.toPx()
             val phaseNow = t?.value ?: 0.5f
-            link(xs + rs + 6.dp.toPx(), xb - rb - 6.dp.toPx(), y, p.gold, solarWatts, towardEnd = true, phaseNow)
-            val other = otherWatts
-            link(xb + rb + 6.dp.toPx(), xo - rs - 6.dp.toPx(), y, p.violet, other, towardEnd = (other ?: 0.0) < 0, phaseNow)
+            link(xs + rs + 6.dp.toPx(), xb - rb - 6.dp.toPx(), y, p.gold, solar, threshold, towardEnd = true, phaseNow)
+            link(xb + rb + 6.dp.toPx(), xo - rs - 6.dp.toPx(), y, p.violet, other, threshold, towardEnd = (other ?: 0.0) < 0, phaseNow)
             node(Offset(xs, y), rs, p.gold, sun)
-            node(Offset(xb, y), rb, socLinkColor(p, bankWatts), battery)
+            node(Offset(xb, y), rb, bankColor, battery)
             node(Offset(xo, y), rs, p.violet, van)
         }
         Spacer(Modifier.height(8.dp))
         Row(Modifier.fillMaxWidth()) {
-            FlowCaption(solarWatts?.let { "${Math.round(it)} W" } ?: "--", solarCaption, p.gold, Modifier.weight(1f))
-            FlowCaption(bankWatts?.let { Fmt.signedWatts(it) } ?: "--", "Batteries", socLinkColor(p, bankWatts), Modifier.weight(1f))
-            FlowCaption(otherWatts?.let { Fmt.signedWatts(it) } ?: "--", "DC-DC & loads", p.violet, Modifier.weight(1f))
+            FlowCaption(solar?.let { plain(it) } ?: "--", solarCaption, p.gold, Modifier.weight(1f))
+            FlowCaption(bank?.let { signed(it) } ?: "--", "Batteries", bankColor, Modifier.weight(1f))
+            FlowCaption(other?.let { signed(it) } ?: "--", "DC-DC & loads", p.violet, Modifier.weight(1f))
         }
     }
 }
 
-private fun socLinkColor(p: Palette, watts: Double?): Color = when {
-    watts == null -> p.t3
-    watts > 5 -> p.green
-    watts < -5 -> p.sky
+private fun flowColor(p: Palette, value: Double?, threshold: Double): Color = when {
+    value == null -> p.t3
+    value > threshold -> p.green
+    value < -threshold -> p.sky
     else -> p.t2
 }
 
@@ -336,9 +342,18 @@ private fun FlowCaption(value: String, caption: String, color: Color, modifier: 
     }
 }
 
-private fun DrawScope.link(x1: Float, x2: Float, y: Float, color: Color, watts: Double?, towardEnd: Boolean, phase: Float) {
+private fun DrawScope.link(
+    x1: Float,
+    x2: Float,
+    y: Float,
+    color: Color,
+    value: Double?,
+    threshold: Double,
+    towardEnd: Boolean,
+    phase: Float,
+) {
     drawLine(color.copy(alpha = 0.22f), Offset(x1, y), Offset(x2, y), 2.dp.toPx(), StrokeCap.Round)
-    val active = watts != null && abs(watts) >= 5
+    val active = value != null && abs(value) >= threshold
     if (!active) return
     val n = 4
     val r = 2.6.dp.toPx()
@@ -361,20 +376,35 @@ private fun DrawScope.node(c: Offset, r: Float, color: Color, icon: androidx.com
 }
 
 /**
- * Bank power over the last [windowMs]: area above zero in green (charging), below in sky
- * (discharging), with solar as a thin gold line.
+ * Bank power (or current) over the last [windowMs]: area above zero in green (charging),
+ * below in sky (discharging), with solar as a thin gold line.
  */
 @Composable
-fun PowerChart(samples: List<PowerSample>, now: Long, windowMs: Long, modifier: Modifier = Modifier, height: Dp = 84.dp) {
+fun PowerChart(
+    samples: List<PowerSample>,
+    now: Long,
+    windowMs: Long,
+    modifier: Modifier = Modifier,
+    height: Dp = 84.dp,
+    unit: FlowUnit = FlowUnit.WATTS,
+) {
     val p = LocalPalette.current
-    val pts = remember(samples, now) { samples.filter { now - it.time <= windowMs } }
-    if (pts.size < 2) {
+    val amps = unit == FlowUnit.AMPS
+    val series = remember(samples, now, unit) {
+        samples.filter { now - it.time <= windowMs }
+            .mapNotNull { s -> (if (amps) s.bankAmps else s.bankWatts)?.let { s.time to it } }
+    }
+    val solarSeries = remember(samples, now, unit) {
+        samples.filter { now - it.time <= windowMs }
+            .mapNotNull { s -> (if (amps) s.solarAmps else s.solarWatts)?.let { s.time to it } }
+    }
+    if (series.size < 2) {
         Box(modifier.fillMaxWidth().height(height), contentAlignment = Alignment.Center) {
             Text("Collecting data…", style = Type.text(13.sp), color = p.t3)
         }
         return
     }
-    val solarColor = p.gold
+    val floor = if (amps) 5f else 50f
     Canvas(
         modifier
             .fillMaxWidth()
@@ -382,9 +412,9 @@ fun PowerChart(samples: List<PowerSample>, now: Long, windowMs: Long, modifier: 
     ) {
         val w = size.width
         val h = size.height
-        val values = pts.map { it.bankWatts } + pts.mapNotNull { it.solarWatts }
-        var top = max(values.max(), 50f)
-        var bottom = min(values.min(), -50f)
+        val values = series.map { it.second } + solarSeries.map { it.second }
+        var top = max(values.max(), floor)
+        var bottom = min(values.min(), -floor)
         val padding = (top - bottom) * 0.08f
         top += padding
         bottom -= padding
@@ -398,9 +428,9 @@ fun PowerChart(samples: List<PowerSample>, now: Long, windowMs: Long, modifier: 
         )
         val line = Path()
         val area = Path()
-        pts.forEachIndexed { i, s ->
-            val px = x(s.time)
-            val py = y(s.bankWatts)
+        series.forEachIndexed { i, (time, v) ->
+            val px = x(time)
+            val py = y(v)
             if (i == 0) {
                 line.moveTo(px, py)
                 area.moveTo(px, zero)
@@ -410,7 +440,7 @@ fun PowerChart(samples: List<PowerSample>, now: Long, windowMs: Long, modifier: 
                 area.lineTo(px, py)
             }
         }
-        area.lineTo(x(pts.last().time), zero)
+        area.lineTo(x(series.last().first), zero)
         area.close()
 
         clipRect(bottom = zero) {
@@ -421,22 +451,21 @@ fun PowerChart(samples: List<PowerSample>, now: Long, windowMs: Long, modifier: 
             drawPath(area, Brush.verticalGradient(listOf(Color.Transparent, p.sky.copy(alpha = 0.32f)), zero, h))
             drawPath(line, p.sky, style = Stroke(2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
         }
-        val solarPts = pts.filter { it.solarWatts != null }
-        if (solarPts.size >= 2) {
+        if (solarSeries.size >= 2) {
             val solar = Path()
-            solarPts.forEachIndexed { i, s ->
-                val px = x(s.time)
-                val py = y(s.solarWatts!!)
+            solarSeries.forEachIndexed { i, (time, v) ->
+                val px = x(time)
+                val py = y(v)
                 if (i == 0) solar.moveTo(px, py) else solar.lineTo(px, py)
             }
             drawPath(
-                solar, solarColor.copy(alpha = 0.85f),
+                solar, p.gold.copy(alpha = 0.85f),
                 style = Stroke(1.5.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round),
             )
         }
-        val last = pts.last()
-        val end = Offset(x(last.time), y(last.bankWatts))
-        val endColor = if (last.bankWatts >= 0) p.green else p.sky
+        val (lastTime, lastValue) = series.last()
+        val end = Offset(x(lastTime), y(lastValue))
+        val endColor = if (lastValue >= 0) p.green else p.sky
         drawCircle(endColor.copy(alpha = 0.18f), 9.dp.toPx(), end)
         drawCircle(p.card2, 6.5.dp.toPx(), end)
         drawCircle(endColor, 4.5.dp.toPx(), end)

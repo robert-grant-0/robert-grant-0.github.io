@@ -37,6 +37,8 @@ object Fmt {
 
     fun amps(a: Double) = "${signed(a, 2)} A"
 
+    fun signedAmps(a: Double, decimals: Int = 1) = "${signed(a, decimals)} A"
+
     fun signedWatts(w: Double): String = when {
         abs(w) >= 10_000 -> "${signed(w / 1000, 1)} kW"
         abs(w) >= 1_000 -> "${signed(w / 1000, 2)} kW"
@@ -141,6 +143,9 @@ data class BankView(
     val solarState: String?,
     val solarTodayKwh: Double?,
     val otherWatts: Double?,
+    /** Solar charger output into the bank, A. */
+    val solarAmps: Double?,
+    val otherAmps: Double?,
     val liveBatteries: Int,
     val configuredBatteries: Int,
 )
@@ -209,6 +214,8 @@ fun bankView(
         solarState = pv?.let { VictronProtocol.chargeStateName(it.chargeState) },
         solarTodayKwh = pv?.yieldTodayWh?.let { it / 1000.0 },
         otherWatts = if (otherAmps != null && refVolts != null) otherAmps * refVolts else null,
+        solarAmps = pv?.batteryCurrent,
+        otherAmps = otherAmps,
         liveBatteries = s.liveCount,
         configuredBatteries = s.configuredCount,
     )

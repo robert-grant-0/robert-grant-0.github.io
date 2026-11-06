@@ -21,6 +21,7 @@ import io.github.robertgrant0.bmsmonitor.bms.SustainTracker
 import io.github.robertgrant0.bmsmonitor.bms.VictronDeviceState
 import io.github.robertgrant0.bmsmonitor.bms.VictronStatus
 import io.github.robertgrant0.bmsmonitor.data.AppSettings
+import io.github.robertgrant0.bmsmonitor.data.FlowUnit
 import io.github.robertgrant0.bmsmonitor.data.PowerSample
 import io.github.robertgrant0.bmsmonitor.data.SlotConfig
 import io.github.robertgrant0.bmsmonitor.data.VictronKind
@@ -93,8 +94,8 @@ class ScreenshotTest {
         var w = -160 + max(0.0, t - 0.25) * 520 + sin(i / 3.2) * 18 + sin(i / 1.3) * 9
         if (t > 0.82) w -= (t - 0.82) * 180
         val solarW = max(0.0, (t - 0.18) * 560 + sin(i / 2.5) * 14)
-        PowerSample(now - ((89 - i) * 2 * 60_000L), w.toFloat(), solarW.toFloat())
-    }.dropLast(1) + PowerSample(now, 249f, 412f)
+        PowerSample(now - ((89 - i) * 2 * 60_000L), w.toFloat(), solarW.toFloat(), (w / 13.38).toFloat(), (solarW / 13.4).toFloat())
+    }.dropLast(1) + PowerSample(now, 249f, 412f, 18.6f, 30.1f)
 
     private val settings = AppSettings(
         slots = batteries.map { SlotConfig(it.name, it.address, "SP04S020") },
@@ -134,7 +135,7 @@ class ScreenshotTest {
     }
 
     @Composable
-    private fun Home(list: List<BatteryState> = batteries) {
+    private fun Home(list: List<BatteryState> = batteries, unit: FlowUnit = FlowUnit.WATTS) {
         HomeScreen(
             batteries = list,
             alarms = list.map { Alarms.evaluate(it, AlarmThresholds(), now) },
@@ -145,6 +146,7 @@ class ScreenshotTest {
             now = now,
             cellDeltaWarnMv = 100,
             banners = {},
+            unit = unit,
             onOpenDetail = {},
             onSetup = {},
             onOpenSettings = {},
@@ -154,6 +156,10 @@ class ScreenshotTest {
     @Test
     @Config(qualifiers = "w1280dp-h800dp-land-xhdpi")
     fun homeTablet() = capture("1-home-tablet") { Home() }
+
+    @Test
+    @Config(qualifiers = "w1280dp-h800dp-land-xhdpi")
+    fun homeTabletAmps() = capture("10-home-tablet-amps") { Home(unit = FlowUnit.AMPS) }
 
     @Test
     @Config(qualifiers = "w1280dp-h800dp-land-xhdpi")

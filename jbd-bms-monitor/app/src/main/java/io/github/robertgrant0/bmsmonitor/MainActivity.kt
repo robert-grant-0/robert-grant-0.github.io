@@ -57,6 +57,7 @@ import io.github.robertgrant0.bmsmonitor.bms.Alarms
 import io.github.robertgrant0.bmsmonitor.bms.BankAnalysis
 import io.github.robertgrant0.bmsmonitor.bms.VictronProtocol
 import io.github.robertgrant0.bmsmonitor.data.AppSettings
+import io.github.robertgrant0.bmsmonitor.data.FlowUnit
 import io.github.robertgrant0.bmsmonitor.data.VictronKind
 import io.github.robertgrant0.bmsmonitor.service.BmsService
 import io.github.robertgrant0.bmsmonitor.ui.Banner
@@ -199,6 +200,7 @@ private fun AppRoot(app: BmsApp, settings: AppSettings) {
             alarms = alarms,
             now = now,
             cellDeltaWarnMv = settings.thresholds.cellDeltaMv.takeIf { settings.thresholds.cellDeltaEnabled },
+            unit = settings.flowUnit,
             shunt = shunt,
             solar = solar,
             bankAlarms = bankAlarms,
