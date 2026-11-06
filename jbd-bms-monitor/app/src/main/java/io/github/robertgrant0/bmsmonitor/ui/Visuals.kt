@@ -269,8 +269,14 @@ fun CellBars(
                     if (balancing) {
                         val r = 3.dp.toPx()
                         val cy = if (big) top + 14.dp.toPx() else max(r * 2, top - 7.dp.toPx())
-                        drawCircle(p.gold.copy(alpha = 0.22f), r * 2.2f, Offset(size.width / 2, cy))
-                        drawCircle(p.gold, r, Offset(size.width / 2, cy))
+                        if (p.flat) {
+                            // White ring so the marker shows on an orange (highest-cell) bar too.
+                            drawCircle(Color.White, r * 2f, Offset(size.width / 2, cy))
+                            drawCircle(p.gold, r * 1.1f, Offset(size.width / 2, cy))
+                        } else {
+                            drawCircle(p.gold.copy(alpha = 0.22f), r * 2.2f, Offset(size.width / 2, cy))
+                            drawCircle(p.gold, r, Offset(size.width / 2, cy))
+                        }
                     }
                 }
                 if (big) {

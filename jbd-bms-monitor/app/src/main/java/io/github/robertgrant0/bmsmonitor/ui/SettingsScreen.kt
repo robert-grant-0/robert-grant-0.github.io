@@ -123,7 +123,7 @@ fun SettingsScreen(
                                     TextAction("Remove", p.t2) { onUpdate { it.withSlot(i) { c -> c.copy(address = null, deviceName = null) } } }
                                     Spacer(Modifier.width(6.dp))
                                 }
-                                PillButton(if (slot.address == null) "Choose" else "Change", { onChooseDevice(i) })
+                                PillButton(if (slot.address == null) "Choose" else "Change", { onChooseDevice(i) }, filled = true)
                             }
                             Spacer(Modifier.height(12.dp))
                             StyledField(
@@ -365,7 +365,7 @@ private fun VictronEditor(
                 TextAction("Remove", p.t2, onRemove)
                 Spacer(Modifier.width(6.dp))
             }
-            PillButton(if (slot.address == null) "Choose" else "Change", onChoose)
+            PillButton(if (slot.address == null) "Choose" else "Change", onChoose, filled = true)
         }
         if (slot.address != null) {
             Spacer(Modifier.height(12.dp))
