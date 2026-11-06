@@ -56,6 +56,15 @@ class BankViewTest {
     }
 
     @Test
+    fun solarAmpsFallBackToPowerOverVoltage() {
+        val noCurrent = solar.copy(reading = SolarReading(3, 0, 13.40, null, 1860, 412, null))
+        val v = bankView(bank, shunt, noCurrent, now)
+        assertEquals(412 / 13.40, v.solarAmps!!, 1e-9)
+        assertEquals(18.6 - 412 / 13.40, v.otherAmps!!, 1e-9)
+        assertEquals((18.6 - 412 / 13.40) * 13.38, v.otherWatts!!, 1e-9)
+    }
+
+    @Test
     fun fallsBackToBatteriesWithoutShunt() {
         val v = bankView(bank, VictronDeviceState(), solar, now)
         assertFalse(v.fromShunt)

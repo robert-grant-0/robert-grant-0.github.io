@@ -11,6 +11,9 @@ import kotlin.math.roundToLong
 /** Below this current (A) a battery is shown as idle. */
 const val IDLE_CURRENT_A = 0.1
 
+/** Nominal voltage of a 12 V LiFePO4 bank, used only when no measured voltage is available. */
+const val NOMINAL_VOLTS = 12.8
+
 enum class PowerFlow { CHARGING, DISCHARGING, IDLE }
 
 fun powerFlow(current: Double): PowerFlow = when {
@@ -196,9 +199,15 @@ fun bankView(
     }
     val watts = if (amps != null && volts != null) amps * volts else null
 
+    // The MPPT reports the current it pushes into the bank. If that is ever missing, derive it
+    // from the panel power at the battery voltage (nominal 12.8 V as a last resort).
+    val solarAmps: Double? = pv?.let { charger ->
+        charger.batteryCurrent
+            ?: charger.solarPower?.let { w -> w / (charger.batteryVoltage ?: volts ?: NOMINAL_VOLTS) }
+    }
     // Whatever isn't solar: mostly the DC-DC chargers (positive) or loads (negative).
     val bankAmps = sh?.current ?: if (allLive) s.current else null
-    val otherAmps = if (bankAmps != null && pv?.batteryCurrent != null) bankAmps - pv.batteryCurrent else null
+    val otherAmps = if (bankAmps != null && solarAmps != null) bankAmps - solarAmps else null
     val refVolts = volts ?: pv?.batteryVoltage
 
     return BankView(
@@ -214,7 +223,7 @@ fun bankView(
         solarState = pv?.let { VictronProtocol.chargeStateName(it.chargeState) },
         solarTodayKwh = pv?.yieldTodayWh?.let { it / 1000.0 },
         otherWatts = if (otherAmps != null && refVolts != null) otherAmps * refVolts else null,
-        solarAmps = pv?.batteryCurrent,
+        solarAmps = solarAmps,
         otherAmps = otherAmps,
         liveBatteries = s.liveCount,
         configuredBatteries = s.configuredCount,
