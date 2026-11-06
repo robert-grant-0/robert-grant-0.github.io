@@ -4,17 +4,22 @@ An Android app that stays connected over Bluetooth to **three JBD (Jiabaida / "X
 
 ## What it shows
 
-**Home screen (all 3 batteries side by side)**
-- State of charge gauge, remaining / nominal Ah
-- Charging / discharging / idle with the current in amps (+ charging, − discharging)
-- Pack voltage, power (W), time to full / time to empty
-- Temperature, cycle count, cell voltage difference
-- Every cell voltage, with the lowest and highest cells highlighted and balancing cells marked
-- Charge and discharge MOSFET state
-- Active alarms (the card gets a red or amber border)
-- A bank summary bar with combined charge, current, power, remaining capacity and time estimate
+**Bank summary (top of the home screen)**
+- A state-of-charge ring for the whole bank, net power, current, voltage, remaining Ah and a "Full in…" / "Empty in…" estimate. With a SmartShunt these figures come from the shunt.
+- An **energy flow** diagram: solar → batteries ← DC-DC & loads. Moving particles show which way the energy is going.
+- A **power chart** of the last 3 hours: green above zero (charging), blue below (discharging), with solar as a gold line
 
-**Battery detail screen** (tap a card): per-cell voltage bars, every BMS protection flag, each temperature sensor, hardware and software version, manufacture date, signal strength, reconnect count.
+**One card per battery (all 3 side by side)**
+- A battery that fills to its state of charge, rippling while it charges
+- Charging / discharging / idle, and the current in amps (+ charging, − discharging)
+- Power, voltage and time to full or empty
+- Temperature, cell spread, cycle count, and the battery's share of the bank current
+- Cell voltage bars. They stay level for a healthy pack and highlight the highest and lowest cells only when the spread matters. Balancing cells get a gold dot.
+- A status strip with alarms, signal strength and the charge/discharge MOSFET state. The card's outline turns amber or red for warnings and alarms.
+
+**Battery detail screen** (tap a card): large cell bars with each voltage, every BMS protection flag, all temperature sensors, and the BMS's details.
+
+**Design:** dark by default (light and automatic themes are in Settings), with the Inter typeface and figures that keep the same width as they change. There's an **Animations** switch for slower tablets.
 
 ## Victron SmartShunt and solar charger (optional)
 
