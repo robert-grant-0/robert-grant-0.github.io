@@ -105,7 +105,7 @@ class ScreenshotTest {
 
     private val alarms = batteries.map { Alarms.evaluate(it, AlarmThresholds(), now) }
 
-    private fun capture(name: String, dark: Boolean = true, content: @Composable () -> Unit) {
+    private fun capture(name: String, dark: Boolean = false, content: @Composable () -> Unit) {
         compose.setContent {
             BmsTheme(dark = dark, fonts = InterFonts, animations = false) { content() }
         }
@@ -163,7 +163,7 @@ class ScreenshotTest {
 
     @Test
     @Config(qualifiers = "w1280dp-h800dp-land-xhdpi")
-    fun homeTabletLight() = capture("2-home-tablet-light", dark = false) { Home() }
+    fun homeTabletDark() = capture("2-home-tablet-dark", dark = true) { Home() }
 
     @Test
     @Config(qualifiers = "w962dp-h600dp-land-xhdpi")

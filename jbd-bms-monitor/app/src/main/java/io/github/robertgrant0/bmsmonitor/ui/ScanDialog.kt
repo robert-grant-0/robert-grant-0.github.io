@@ -160,16 +160,16 @@ fun ScanDialog(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (scanning) {
-                    RadarPulse(pal.green)
+                    RadarPulse(pal.accent)
                 } else {
                     Box(
                         Modifier
                             .size(44.dp)
                             .clip(CircleShape)
-                            .background(pal.green.copy(alpha = 0.12f)),
+                            .background(pal.accent.copy(alpha = 0.12f)),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Icon(AppIcons.Bluetooth, null, tint = pal.green, modifier = Modifier.size(22.dp))
+                        Icon(AppIcons.Bluetooth, null, tint = pal.accent, modifier = Modifier.size(22.dp))
                     }
                 }
                 Spacer(Modifier.width(14.dp))
@@ -236,7 +236,7 @@ fun ScanDialog(
                                 )
                                 if (d.likelyBms) {
                                     Spacer(Modifier.width(8.dp))
-                                    Pill(if (victronRecord != null) "Victron" else "BMS", pal.green)
+                                    Pill(if (victronRecord != null) "Victron" else "BMS", pal.accent)
                                 }
                             }
                             Text(
@@ -262,7 +262,7 @@ fun ScanDialog(
                 Checkbox(
                     checked = showAll,
                     onCheckedChange = { showAll = it },
-                    colors = CheckboxDefaults.colors(checkedColor = pal.green, uncheckedColor = pal.t3, checkmarkColor = pal.onAccent),
+                    colors = CheckboxDefaults.colors(checkedColor = pal.accent, uncheckedColor = pal.t3, checkmarkColor = pal.onAccent),
                 )
                 Text("Show devices without a name", style = Type.text(14.sp), color = pal.t2)
             }
@@ -281,11 +281,11 @@ fun ScanDialog(
                         unfocusedTextColor = pal.t1,
                         focusedContainerColor = pal.well,
                         unfocusedContainerColor = pal.well,
-                        focusedBorderColor = pal.green,
+                        focusedBorderColor = pal.accent,
                         unfocusedBorderColor = pal.line,
-                        focusedLabelColor = pal.green,
+                        focusedLabelColor = pal.accent,
                         unfocusedLabelColor = pal.t3,
-                        cursorColor = pal.green,
+                        cursorColor = pal.accent,
                     ),
                     modifier = Modifier.weight(1f),
                 )

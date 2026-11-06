@@ -58,6 +58,10 @@ enum class Tone { NORMAL, WARNING, ALARM }
 @Composable
 fun AuroraBackground(modifier: Modifier = Modifier, content: @Composable BoxScope.() -> Unit) {
     val p = LocalPalette.current
+    if (p.flat) {
+        Box(modifier.background(p.bg), content = content)
+        return
+    }
     Box(
         modifier
             .background(p.bg)
@@ -110,21 +114,30 @@ fun GlassCard(
     Column(
         modifier
             .clip(shape)
-            .background(Brush.verticalGradient(0f to top, 0.6f to p.card2, 1f to p.card2))
-            .border(1.dp, border, shape)
-            .drawBehind {
-                val inset = corner.toPx()
-                drawLine(
-                    Brush.horizontalGradient(
-                        listOf(Color.Transparent, p.highlight, Color.Transparent),
-                        startX = inset,
-                        endX = size.width - inset,
-                    ),
-                    start = Offset(inset, 0.5f),
-                    end = Offset(size.width - inset, 0.5f),
-                    strokeWidth = 1f,
-                )
-            }
+            .then(
+                if (p.flat) {
+                    Modifier
+                        .background(top)
+                        .then(if (tone == Tone.NORMAL) Modifier else Modifier.border(1.5.dp, border, shape))
+                } else {
+                    Modifier
+                        .background(Brush.verticalGradient(0f to top, 0.6f to p.card2, 1f to p.card2))
+                        .border(1.dp, border, shape)
+                        .drawBehind {
+                            val inset = corner.toPx()
+                            drawLine(
+                                Brush.horizontalGradient(
+                                    listOf(Color.Transparent, p.highlight, Color.Transparent),
+                                    startX = inset,
+                                    endX = size.width - inset,
+                                ),
+                                start = Offset(inset, 0.5f),
+                                end = Offset(size.width - inset, 0.5f),
+                                strokeWidth = 1f,
+                            )
+                        }
+                },
+            )
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(padding),
         verticalArrangement = verticalArrangement,
@@ -390,7 +403,7 @@ fun PillButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    color: Color = LocalPalette.current.green,
+    color: Color = LocalPalette.current.accent,
     filled: Boolean = false,
     enabled: Boolean = true,
 ) {

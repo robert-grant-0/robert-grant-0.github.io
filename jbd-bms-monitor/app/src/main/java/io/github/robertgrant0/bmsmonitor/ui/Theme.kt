@@ -20,10 +20,12 @@ import androidx.compose.ui.unit.sp
 import io.github.robertgrant0.bmsmonitor.data.ThemeMode
 
 /** Every colour in the app. Semantic meaning is fixed: green = charging/OK, sky = discharging,
- *  gold = solar, violet = DC-DC & loads, orange = warning, red = alarm. */
+ *  gold = solar, coral = DC-DC & loads, orange = warning, red = alarm. */
 @Immutable
 data class Palette(
     val dark: Boolean,
+    /** Flat style: solid fills, no gradients, glows or highlight lines. */
+    val flat: Boolean,
     val bg: Color,
     val glowA: Color,
     val glowB: Color,
@@ -39,10 +41,13 @@ data class Palette(
     val t1: Color,
     val t2: Color,
     val t3: Color,
+    /** Buttons, selected controls and other interactive accents. */
+    val accent: Color,
     val green: Color,
     val greenDeep: Color,
     val sky: Color,
     val gold: Color,
+    /** "DC-DC & loads" in the energy flow (violet in the dark theme, coral in the light one). */
     val violet: Color,
     val orange: Color,
     val orangeDeep: Color,
@@ -56,6 +61,7 @@ data class Palette(
 
 val DarkPalette = Palette(
     dark = true,
+    flat = false,
     bg = Color(0xFF05070B),
     glowA = Color(0xFF34D399).copy(alpha = 0.13f),
     glowB = Color(0xFF38BDF8).copy(alpha = 0.08f),
@@ -71,6 +77,7 @@ val DarkPalette = Palette(
     t1 = Color(0xFFF2F4F7),
     t2 = Color(0xFF98A2B3),
     t3 = Color(0xFF5D6676),
+    accent = Color(0xFF34D399),
     green = Color(0xFF34D399),
     greenDeep = Color(0xFF059669),
     sky = Color(0xFF38BDF8),
@@ -86,37 +93,38 @@ val DarkPalette = Palette(
     onAccent = Color(0xFF04261A),
 )
 
-private val Ink = Color(0xFF0F172A)
-
+/** Light, flat and friendly: white page, pale blue-grey panels, sky-blue accent, pastel data colours. */
 val LightPalette = Palette(
     dark = false,
-    bg = Color(0xFFF3F5F8),
-    glowA = Color(0xFF34D399).copy(alpha = 0.12f),
-    glowB = Color(0xFF38BDF8).copy(alpha = 0.10f),
-    glowC = Color(0xFFA78BFA).copy(alpha = 0.08f),
-    card1 = Color(0xFFFFFFFF),
-    card2 = Color(0xFFFAFBFC),
-    warnCard = Color(0xFFFFF5EB),
-    alarmCard = Color(0xFFFFEFEF),
-    line = Ink.copy(alpha = 0.09f),
-    line2 = Ink.copy(alpha = 0.06f),
-    well = Ink.copy(alpha = 0.035f),
-    highlight = Color.White.copy(alpha = 0f),
-    t1 = Color(0xFF0B1220),
-    t2 = Color(0xFF556070),
-    t3 = Color(0xFF8A94A3),
-    green = Color(0xFF059669),
-    greenDeep = Color(0xFF047857),
-    sky = Color(0xFF0284C7),
-    gold = Color(0xFFCA8A04),
-    violet = Color(0xFF7C3AED),
-    orange = Color(0xFFEA580C),
-    orangeDeep = Color(0xFFC2410C),
-    red = Color(0xFFDC2626),
-    redDeep = Color(0xFF991B1B),
-    track = Ink.copy(alpha = 0.07f),
-    glyphOutline = Ink.copy(alpha = 0.18f),
-    glyphBody = Ink.copy(alpha = 0.03f),
+    flat = true,
+    bg = Color(0xFFFFFFFF),
+    glowA = Color.Transparent,
+    glowB = Color.Transparent,
+    glowC = Color.Transparent,
+    card1 = Color(0xFFEEF3F8),
+    card2 = Color(0xFFEEF3F8),
+    warnCard = Color(0xFFFFF3E4),
+    alarmCard = Color(0xFFFDE8EC),
+    line = Color(0xFFE0E7EE),
+    line2 = Color(0xFFE6ECF2),
+    well = Color(0xFFFFFFFF),
+    highlight = Color.Transparent,
+    t1 = Color(0xFF2B3137),
+    t2 = Color(0xFF7B8690),
+    t3 = Color(0xFFA3ADB7),
+    accent = Color(0xFF4FB3F2),
+    green = Color(0xFF2FB673),
+    greenDeep = Color(0xFF22995E),
+    sky = Color(0xFF3B8EEB),
+    gold = Color(0xFFE2A80F),
+    violet = Color(0xFFEF8F64),
+    orange = Color(0xFFF0A030),
+    orangeDeep = Color(0xFFC97F10),
+    red = Color(0xFFEB5A77),
+    redDeep = Color(0xFFC23A57),
+    track = Color(0xFFDCE5EE),
+    glyphOutline = Color(0xFFC5D0DB),
+    glyphBody = Color(0xFFFFFFFF),
     onAccent = Color.White,
 )
 
@@ -218,7 +226,7 @@ fun BmsTheme(dark: Boolean, fonts: AppFonts, animations: Boolean = true, content
     val p = if (dark) DarkPalette else LightPalette
     val scheme = if (dark) {
         darkColorScheme(
-            primary = p.green,
+            primary = p.accent,
             onPrimary = p.onAccent,
             secondary = p.sky,
             background = p.bg,
@@ -238,7 +246,7 @@ fun BmsTheme(dark: Boolean, fonts: AppFonts, animations: Boolean = true, content
         )
     } else {
         lightColorScheme(
-            primary = p.green,
+            primary = p.accent,
             onPrimary = p.onAccent,
             secondary = p.sky,
             background = p.bg,

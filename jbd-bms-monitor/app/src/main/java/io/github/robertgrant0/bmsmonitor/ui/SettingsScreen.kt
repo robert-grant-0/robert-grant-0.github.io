@@ -375,7 +375,7 @@ private fun VictronEditor(
                 label = "Encryption key (32 characters)",
                 isError = slot.key.isNotBlank() && !keyOk,
                 visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
-                trailing = { TextAction(if (showKey) "Hide" else "Show", p.green) { showKey = !showKey } },
+                trailing = { TextAction(if (showKey) "Hide" else "Show", p.accent) { showKey = !showKey } },
             )
         }
     }
@@ -406,11 +406,11 @@ private fun StyledField(
             unfocusedTextColor = p.t1,
             focusedContainerColor = p.well,
             unfocusedContainerColor = p.well,
-            focusedBorderColor = p.green,
+            focusedBorderColor = p.accent,
             unfocusedBorderColor = p.line,
-            focusedLabelColor = p.green,
+            focusedLabelColor = p.accent,
             unfocusedLabelColor = p.t3,
-            cursorColor = p.green,
+            cursorColor = p.accent,
             errorBorderColor = p.red,
             errorLabelColor = p.red,
             errorContainerColor = p.well,
@@ -447,7 +447,7 @@ private fun StyledSwitch(checked: Boolean, onChange: (Boolean) -> Unit) {
         onCheckedChange = onChange,
         colors = SwitchDefaults.colors(
             checkedThumbColor = Color.White,
-            checkedTrackColor = p.green,
+            checkedTrackColor = p.accent,
             checkedBorderColor = Color.Transparent,
             uncheckedThumbColor = p.t2,
             uncheckedTrackColor = p.t1.copy(alpha = 0.08f),
@@ -516,7 +516,7 @@ private fun StepButton(symbol: String, enabled: Boolean, onClick: () -> Unit) {
             .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier),
         contentAlignment = Alignment.Center,
     ) {
-        Text(symbol, style = Type.text(20.sp, FontWeight.Medium), color = if (enabled) p.green else p.t3)
+        Text(symbol, style = Type.text(20.sp, FontWeight.Medium), color = if (enabled) p.accent else p.t3)
     }
 }
 
@@ -538,19 +538,23 @@ private fun <T> Segmented(options: List<Pair<T, String>>, selected: T, onSelect:
                     .height(32.dp)
                     .clip(shape)
                     .then(
-                        if (on) {
-                            Modifier
+                        when {
+                            on && p.flat -> Modifier.background(p.accent)
+                            on -> Modifier
                                 .background(p.card1)
                                 .border(1.dp, p.line, shape)
-                        } else {
-                            Modifier
+                            else -> Modifier
                         },
                     )
                     .clickable { onSelect(value) }
                     .padding(horizontal = 16.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(label, style = Type.text(13.5.sp, FontWeight.SemiBold), color = if (on) p.t1 else p.t2)
+                Text(
+                    label,
+                    style = Type.text(13.5.sp, FontWeight.SemiBold),
+                    color = if (on && p.flat) p.onAccent else if (on) p.t1 else p.t2,
+                )
             }
         }
     }

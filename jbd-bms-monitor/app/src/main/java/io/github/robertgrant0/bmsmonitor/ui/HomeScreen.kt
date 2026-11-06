@@ -618,11 +618,11 @@ private fun EmptyCard(name: String, onClick: () -> Unit, modifier: Modifier) {
             Modifier
                 .size(64.dp)
                 .clip(CircleShape)
-                .background(p.green.copy(alpha = 0.10f))
-                .border(1.dp, p.green.copy(alpha = 0.30f), CircleShape),
+                .background(p.accent.copy(alpha = 0.12f))
+                .border(1.dp, p.accent.copy(alpha = 0.35f), CircleShape),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(Icons.Filled.Add, null, tint = p.green, modifier = Modifier.size(30.dp))
+            Icon(Icons.Filled.Add, null, tint = p.accent, modifier = Modifier.size(30.dp))
         }
         Spacer(Modifier.height(14.dp))
         Text("Add $name", style = Type.text(18.sp, FontWeight.SemiBold), color = p.t1)

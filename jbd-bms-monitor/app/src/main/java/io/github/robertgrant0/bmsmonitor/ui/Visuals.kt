@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -94,12 +95,16 @@ fun SocRing(soc: Int?, diameter: Dp, modifier: Modifier = Modifier, caption: Str
             val r = (size.minDimension - stroke) / 2f - 6.dp.toPx()
             val topLeft = Offset(center.x - r, center.y - r)
             val arcSize = Size(r * 2, r * 2)
-            drawCircle(
-                Brush.radialGradient(listOf(color.copy(alpha = 0.20f), Color.Transparent), center, r + stroke * 1.6f),
-                radius = r + stroke * 1.6f,
-            )
+            if (!p.flat) {
+                drawCircle(
+                    Brush.radialGradient(listOf(color.copy(alpha = 0.20f), Color.Transparent), center, r + stroke * 1.6f),
+                    radius = r + stroke * 1.6f,
+                )
+            }
             drawArc(p.track, 135f, 270f, false, topLeft, arcSize, style = Stroke(stroke, cap = StrokeCap.Round))
-            if (soc != null && sweep > 0.001f) {
+            if (soc != null && sweep > 0.001f && p.flat) {
+                drawArc(color, 135f, 270f * sweep, false, topLeft, arcSize, style = Stroke(stroke, cap = StrokeCap.Round))
+            } else if (soc != null && sweep > 0.001f) {
                 drawArc(
                     color.copy(alpha = 0.16f), 135f, 270f * sweep, false, topLeft, arcSize,
                     style = Stroke(stroke + 8.dp.toPx(), cap = StrokeCap.Round),
@@ -166,7 +171,7 @@ fun BatteryGlyph(soc: Int?, charging: Boolean, modifier: Modifier = Modifier, wi
             addRoundRect(RoundRect(pad, innerTop, pad + innerW, innerTop + innerH, CornerRadius(9.dp.toPx())))
         }
         clipPath(clip) {
-            val brush = Brush.verticalGradient(listOf(color, color.copy(alpha = 0.5f)), fillTop, innerTop + innerH)
+            val brush = if (p.flat) SolidColor(color) else Brush.verticalGradient(listOf(color, color.copy(alpha = 0.5f)), fillTop, innerTop + innerH)
             if (charging) {
                 val t = wave?.value ?: 0f
                 val amp = 2.dp.toPx()
@@ -185,7 +190,7 @@ fun BatteryGlyph(soc: Int?, charging: Boolean, modifier: Modifier = Modifier, wi
             } else {
                 drawRect(brush, Offset(pad, fillTop), Size(innerW, innerH - (fillTop - innerTop)))
             }
-            drawRect(Color.White.copy(alpha = 0.10f), Offset(pad, fillTop), Size(innerW * 0.32f, innerTop + innerH - fillTop))
+            if (!p.flat) drawRect(Color.White.copy(alpha = 0.10f), Offset(pad, fillTop), Size(innerW * 0.32f, innerTop + innerH - fillTop))
         }
         if (charging) {
             val s = 20.dp.toPx()
@@ -250,10 +255,14 @@ fun CellBars(
                     val top = size.height - h
                     val strong = isMax || isMin
                     drawRoundRect(
-                        Brush.verticalGradient(
-                            listOf(c.copy(alpha = if (strong) 1f else 0.7f), c.copy(alpha = 0.2f)),
-                            top, size.height,
-                        ),
+                        if (p.flat) {
+                            SolidColor(c.copy(alpha = if (strong) 1f else 0.72f))
+                        } else {
+                            Brush.verticalGradient(
+                                listOf(c.copy(alpha = if (strong) 1f else 0.7f), c.copy(alpha = 0.2f)),
+                                top, size.height,
+                            )
+                        },
                         Offset(0f, top), Size(size.width, h),
                         CornerRadius(if (big) 10.dp.toPx() else 6.dp.toPx()),
                     )
@@ -314,9 +323,9 @@ fun EnergyFlow(
             val phaseNow = t?.value ?: 0.5f
             link(xs + rs + 6.dp.toPx(), xb - rb - 6.dp.toPx(), y, p.gold, solar, threshold, towardEnd = true, phaseNow)
             link(xb + rb + 6.dp.toPx(), xo - rs - 6.dp.toPx(), y, p.violet, other, threshold, towardEnd = (other ?: 0.0) < 0, phaseNow)
-            node(Offset(xs, y), rs, p.gold, sun)
-            node(Offset(xb, y), rb, bankColor, battery)
-            node(Offset(xo, y), rs, p.violet, van)
+            node(Offset(xs, y), rs, p.gold, sun, p.flat, p.onAccent)
+            node(Offset(xb, y), rb, bankColor, battery, p.flat, p.onAccent)
+            node(Offset(xo, y), rs, p.violet, van, p.flat, p.onAccent)
         }
         Spacer(Modifier.height(8.dp))
         Row(Modifier.fillMaxWidth()) {
@@ -366,12 +375,23 @@ private fun DrawScope.link(
     }
 }
 
-private fun DrawScope.node(c: Offset, r: Float, color: Color, icon: androidx.compose.ui.graphics.painter.Painter) {
-    drawCircle(color.copy(alpha = 0.10f), r, c)
-    drawCircle(color.copy(alpha = 0.40f), r, c, style = Stroke(1.2.dp.toPx()))
+private fun DrawScope.node(
+    c: Offset,
+    r: Float,
+    color: Color,
+    icon: androidx.compose.ui.graphics.painter.Painter,
+    flat: Boolean,
+    iconOnFill: Color,
+) {
+    if (flat) {
+        drawCircle(color, r, c)
+    } else {
+        drawCircle(color.copy(alpha = 0.10f), r, c)
+        drawCircle(color.copy(alpha = 0.40f), r, c, style = Stroke(1.2.dp.toPx()))
+    }
     val s = r * 0.9f
     translate(c.x - s / 2, c.y - s / 2) {
-        with(icon) { draw(Size(s, s), colorFilter = ColorFilter.tint(color)) }
+        with(icon) { draw(Size(s, s), colorFilter = ColorFilter.tint(if (flat) iconOnFill else color)) }
     }
 }
 

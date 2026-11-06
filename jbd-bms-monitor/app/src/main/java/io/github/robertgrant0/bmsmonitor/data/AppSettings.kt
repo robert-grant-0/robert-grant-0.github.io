@@ -46,7 +46,7 @@ data class AppSettings(
     /** Turn the alarm volume up to maximum while the siren sounds. */
     val sirenFullVolume: Boolean = true,
     val thresholds: AlarmThresholds = AlarmThresholds(),
-    val theme: ThemeMode = ThemeMode.DARK,
+    val theme: ThemeMode = ThemeMode.LIGHT,
     val flowUnit: FlowUnit = FlowUnit.WATTS,
     /** Moving charge waves and energy-flow particles. Off saves power on slower tablets. */
     val animations: Boolean = true,

@@ -20,7 +20,7 @@ An Android app that stays connected over Bluetooth to **three JBD (Jiabaida / "X
 
 **Battery detail screen** (tap a card): large cell bars with each voltage, every BMS protection flag, all temperature sensors, and the BMS's details.
 
-**Design:** dark by default (light and automatic themes are in Settings), with the Inter typeface and figures that keep the same width as they change. There's an **Animations** switch for slower tablets.
+**Design:** light and flat by default: a white page with pale blue-grey rounded panels, a sky-blue accent and pastel data colours, in the Inter typeface with figures that keep the same width as they change. A dark theme and an automatic (follow the tablet) option are in Settings, along with an **Animations** switch for slower tablets.
 
 ## Victron SmartShunt and solar charger (optional)
 
