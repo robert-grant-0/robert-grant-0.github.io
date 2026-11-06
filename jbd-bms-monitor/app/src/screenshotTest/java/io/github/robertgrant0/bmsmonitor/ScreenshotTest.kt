@@ -102,11 +102,11 @@ class ScreenshotTest {
     private val alarms = batteries.map { Alarms.evaluate(it, AlarmThresholds(), now) }
 
     private fun capture(name: String, dark: Boolean = true, content: @Composable () -> Unit) {
-        compose.mainClock.autoAdvance = false
+        // The test clock keeps running so frames get drawn (captureToImage waits for one);
+        // the app's own animations are switched off and Compose pauses infinite ones in tests.
         compose.setContent {
             BmsTheme(dark = dark, fonts = InterFonts, animations = false) { content() }
         }
-        compose.mainClock.advanceTimeBy(2_000)
         compose.waitForIdle()
         val bitmap = compose.onRoot().captureToImage().asAndroidBitmap()
         val dir = File("build/screenshots").apply { mkdirs() }
