@@ -3,8 +3,11 @@ package io.github.robertgrant0.bmsmonitor.service
 import android.annotation.SuppressLint
 import android.app.NotificationManager
 import android.app.Service
+import android.bluetooth.BluetoothAdapter
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
@@ -17,11 +20,12 @@ import io.github.robertgrant0.bmsmonitor.bms.Alarm
 import io.github.robertgrant0.bmsmonitor.bms.Alarms
 import io.github.robertgrant0.bmsmonitor.bms.BankAnalysis
 import io.github.robertgrant0.bmsmonitor.bms.BatteryState
+import io.github.robertgrant0.bmsmonitor.bms.SirenLatch
 import io.github.robertgrant0.bmsmonitor.bms.SustainTracker
 import io.github.robertgrant0.bmsmonitor.ui.bankView
-import io.github.robertgrant0.bmsmonitor.bms.SirenLatch
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -30,27 +34,57 @@ import kotlinx.coroutines.launch
 
 /**
  * Foreground service that keeps the BMS connections alive while the app is in the
- * background or the screen is off, keeps the status notification up to date, and
- * raises alarm notifications.
+ * background or the screen is off, keeps the status notification up to date, evaluates
+ * alarms, and feeds the siren. It ticks [io.github.robertgrant0.bmsmonitor.data.MonitoringHealth]
+ * so the watchdog can tell when it has died or stalled.
  */
 class BmsService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var loopJob: Job? = null
     private var wakeLock: PowerManager.WakeLock? = null
-    private var started = false
     private var lastNotificationText: String? = null
 
-    // Alarm keys currently active per slot, and when each "slot:key" was last notified.
-    // Index SLOT_COUNT holds the bank-wide alarms.
+    // Alarm keys currently active per slot (index SLOT_COUNT = bank-wide), when each was
+    // last notified, and which have been written to the diagnostics log.
     private val activeAlarms = Array(BatteryState.SLOT_COUNT + 1) { emptySet<String>() }
     private val bankTracker = SustainTracker()
     private val lastNotified = HashMap<String, Long>()
+    private var loggedAlarms = emptySet<String>()
+
+    private val bluetoothReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action != BluetoothAdapter.ACTION_STATE_CHANGED) return
+            val name = when (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, -1)) {
+                BluetoothAdapter.STATE_ON -> "on"
+                BluetoothAdapter.STATE_OFF -> "off"
+                BluetoothAdapter.STATE_TURNING_ON -> "turning on"
+                BluetoothAdapter.STATE_TURNING_OFF -> "turning off"
+                else -> "changed"
+            }
+            bmsApp.diagnostics.warn("bluetooth", "Adapter $name")
+        }
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    override fun onCreate() {
+        super.onCreate()
+        bmsApp.diagnostics.info("service", "Service created")
+        ContextCompat.registerReceiver(
+            this,
+            bluetoothReceiver,
+            IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val app = bmsApp
+        val log = app.diagnostics
         if (intent?.action == ACTION_STOP) {
+            log.info("service", "Stopped from the notification")
             app.settings.update { it.copy(monitoringEnabled = false) }
+            Watchdog.cancel(this)
             ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
             stopSelf()
             return START_NOT_STICKY
@@ -71,22 +105,48 @@ class BmsService : Service() {
             )
         } catch (e: Exception) {
             // Missing Bluetooth permission or a background-start restriction.
+            log.error("service", "Could not start in the foreground: ${e.message ?: e.javaClass.simpleName}")
             stopSelf()
             return START_NOT_STICKY
         }
 
         if (!app.settings.current.monitoringEnabled || !Permissions.canConnect(this)) {
+            log.info("service", "Not starting: monitoring off or no Bluetooth permission")
+            Watchdog.cancel(this)
             ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
             stopSelf()
             return START_NOT_STICKY
         }
 
-        if (!started) {
-            started = true
-            app.manager.start()
-            scope.launch { watchLoop() }
+        when {
+            loopJob?.isActive != true -> {
+                log.info(
+                    "service",
+                    when {
+                        intent == null -> "Restarted by Android after being killed"
+                        intent.action == ACTION_WATCHDOG -> "Started by the watchdog"
+                        else -> "Monitoring started"
+                    },
+                )
+                startLoop()
+            }
+            intent?.action == ACTION_WATCHDOG && app.health.isStalled(now, true) -> {
+                log.error("service", "Loop had stalled; restarting it")
+                app.health.restarted()
+                loopJob?.cancel()
+                startLoop()
+            }
         }
+        Notifications.cancelStalled(this)
+        Watchdog.schedule(this)
         return START_STICKY
+    }
+
+    private fun startLoop() {
+        val app = bmsApp
+        app.manager.start()
+        app.health.serviceStarted()
+        loopJob = scope.launch { watchLoop() }
     }
 
     private suspend fun watchLoop() {
@@ -95,6 +155,8 @@ class BmsService : Service() {
         while (scope.isActive) {
             val settings = app.settings.current
             if (!settings.monitoringEnabled) {
+                app.diagnostics.info("service", "Monitoring switched off")
+                Watchdog.cancel(this)
                 stopSelf()
                 return
             }
@@ -109,6 +171,7 @@ class BmsService : Service() {
             app.bankAlarms.value = bankAlarms
             val bank = bankView(batteries, app.manager.shunt.value, app.manager.solar.value, now)
             app.history.offer(now, bank.watts, bank.solarWatts, bank.amps, bank.solarAmps)
+            logAlarmChanges(batteries, alarms, bankAlarms)
 
             val notification = Notifications.monitor(this, batteries, alarms, now)
             val text = notification.extras.getCharSequence("android.bigText")?.toString()
@@ -130,8 +193,19 @@ class BmsService : Service() {
                 },
             )
             if (settings.alarmNotifications) raiseAlarms(batteries, alarms, bankAlarms, now, skip = sirenFor)
-            delay(2_000)
+            app.health.tick()
+            delay(LOOP_MS)
         }
+    }
+
+    private fun logAlarmChanges(batteries: List<BatteryState>, alarms: List<List<Alarm>>, bankAlarms: List<Alarm>) {
+        val current = HashMap<String, String>()
+        batteries.forEachIndexed { i, b -> for (a in alarms[i]) current["$i:${a.key}"] = "${b.name}: ${a.message}" }
+        for (a in bankAlarms) current["bank:${a.key}"] = a.message
+        val log = bmsApp.diagnostics
+        for ((key, message) in current) if (key !in loggedAlarms) log.warn("alarm", message)
+        for (key in loggedAlarms) if (key !in current) log.info("alarm", "Cleared: ${key.substringAfter(':')}")
+        loggedAlarms = current.keys.toSet()
     }
 
     private fun raiseAlarms(
@@ -168,15 +242,24 @@ class BmsService : Service() {
                 setReferenceCounted(false)
                 acquire()
             }
+            bmsApp.diagnostics.info("service", "Wake lock acquired")
         } else if (!keepAwake && held) {
             wakeLock?.release()
             wakeLock = null
+            bmsApp.diagnostics.info("service", "Wake lock released")
         }
     }
 
     override fun onDestroy() {
+        val app = bmsApp
+        app.diagnostics.info("service", "Service destroyed")
         scope.cancel()
-        bmsApp.manager.stop()
+        app.health.serviceStopped()
+        try {
+            unregisterReceiver(bluetoothReceiver)
+        } catch (_: Exception) {
+        }
+        app.manager.stop()
         wakeLock?.takeIf { it.isHeld }?.release()
         wakeLock = null
         super.onDestroy()
@@ -184,19 +267,25 @@ class BmsService : Service() {
 
     companion object {
         const val ACTION_STOP = "io.github.robertgrant0.bmsmonitor.STOP"
+        const val ACTION_WATCHDOG = "io.github.robertgrant0.bmsmonitor.WATCHDOG"
+        private const val LOOP_MS = 2_000L
         private const val RENOTIFY_AFTER_MS = 10 * 60_000L
 
-        /** Starts monitoring. Safe to call repeatedly. */
-        fun start(context: Context) {
-            if (!Permissions.canConnect(context)) return
-            try {
-                ContextCompat.startForegroundService(context, Intent(context, BmsService::class.java))
-            } catch (_: Exception) {
+        /** Starts monitoring. Safe to call repeatedly. Returns false if Android refused. */
+        fun start(context: Context, action: String? = null): Boolean {
+            if (!Permissions.canConnect(context)) return false
+            return try {
+                ContextCompat.startForegroundService(context, Intent(context, BmsService::class.java).setAction(action))
+                true
+            } catch (e: Exception) {
                 // Android 12+ refuses to start foreground services from the background in some cases.
+                context.bmsApp.diagnostics.error("service", "Start refused: ${e.message ?: e.javaClass.simpleName}")
+                false
             }
         }
 
         fun stop(context: Context) {
+            Watchdog.cancel(context)
             context.stopService(Intent(context, BmsService::class.java))
         }
     }

@@ -9,6 +9,7 @@ import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.os.SystemClock
 import io.github.robertgrant0.bmsmonitor.Permissions
+import io.github.robertgrant0.bmsmonitor.data.DiagnosticsLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.BufferOverflow
@@ -26,7 +27,7 @@ import kotlinx.coroutines.launch
  * the screen is off.
  */
 @SuppressLint("MissingPermission")
-class DeviceFinder(private val context: Context) {
+class DeviceFinder(private val context: Context, private val log: DiagnosticsLog) {
 
     data class Sighting(val address: String, val rssi: Int)
 
@@ -53,6 +54,7 @@ class DeviceFinder(private val context: Context) {
         }
 
         override fun onScanFailed(errorCode: Int) {
+            log.error("scan", "Background scan failed (error $errorCode)")
             activeFilter = null
         }
     }
@@ -111,6 +113,7 @@ class DeviceFinder(private val context: Context) {
             scanner.startScan(filters, settings, callback)
             activeFilter = want
             scanStartedAt = now
+            log.info("scan", "Background scan for ${want.size} BMS address(es)")
         } catch (_: Exception) {
             activeFilter = null
         }
@@ -119,6 +122,7 @@ class DeviceFinder(private val context: Context) {
     private fun stopScan() {
         if (activeFilter == null) return
         activeFilter = null
+        log.info("scan", "Background scan stopped")
         try {
             context.getSystemService(BluetoothManager::class.java)?.adapter?.bluetoothLeScanner?.stopScan(callback)
         } catch (_: Exception) {

@@ -73,6 +73,7 @@ fun SettingsScreen(
     onAllowFullScreenAlarm: () -> Unit,
     onTestSiren: () -> Unit,
     onSilenceSiren: () -> Unit,
+    onOpenDiagnostics: () -> Unit,
     onBack: () -> Unit,
 ) {
     val p = LocalPalette.current
@@ -293,6 +294,14 @@ fun SettingsScreen(
                         "Charging waves and moving energy flow. Turn off to save power on slower tablets.",
                         settings.animations,
                     ) { on -> onUpdate { it.copy(animations = on) } }
+                }
+
+                SettingsGroup("Support") {
+                    SettingRow(
+                        "Diagnostics",
+                        subtitle = "Connection history and device status. Share it when something misbehaves.",
+                        onClick = onOpenDiagnostics,
+                    ) { Text("›", style = Type.text(22.sp), color = p.t3) }
                 }
 
                 Text(

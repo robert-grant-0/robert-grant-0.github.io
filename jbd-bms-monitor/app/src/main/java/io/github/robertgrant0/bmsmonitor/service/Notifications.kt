@@ -25,6 +25,7 @@ object Notifications {
     const val CHANNEL_SIREN = "siren"
     const val ID_MONITOR = 1
     private const val ID_SIREN = 50
+    private const val ID_STALLED = 60
     private const val ID_ALARM_BASE = 100
 
     fun createChannels(ctx: Context) {
@@ -90,6 +91,33 @@ object Notifications {
 
     fun cancelSiren(ctx: Context) {
         NotificationManagerCompat.from(ctx).cancel(ID_SIREN)
+    }
+
+    /** Posted by the watchdog when the monitor died and could not be restarted in the background. */
+    @SuppressLint("MissingPermission") // Checked with Permissions.canNotify.
+    fun postStalled(ctx: Context) {
+        if (!Permissions.canNotify(ctx)) return
+        val text = "Android stopped the battery monitor and it couldn't be restarted in the background. " +
+            "Tap to open the app, which restarts it."
+        val notification = NotificationCompat.Builder(ctx, CHANNEL_ALARMS)
+            .setSmallIcon(R.drawable.ic_stat_battery)
+            .setContentTitle("Battery monitoring has stopped")
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setContentIntent(openAppIntent(ctx))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_ERROR)
+            .setColor(0xFFE53935.toInt())
+            .setAutoCancel(true)
+            .build()
+        try {
+            NotificationManagerCompat.from(ctx).notify(ID_STALLED, notification)
+        } catch (_: SecurityException) {
+        }
+    }
+
+    fun cancelStalled(ctx: Context) {
+        NotificationManagerCompat.from(ctx).cancel(ID_STALLED)
     }
 
     private fun openAppIntent(ctx: Context): PendingIntent = PendingIntent.getActivity(

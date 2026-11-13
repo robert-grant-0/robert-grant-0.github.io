@@ -10,6 +10,7 @@ import android.bluetooth.BluetoothProfile
 import android.bluetooth.BluetoothStatusCodes
 import android.content.Context
 import android.os.Build
+import io.github.robertgrant0.bmsmonitor.data.DiagnosticsLog
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
@@ -24,7 +25,11 @@ class GattException(message: String) : IOException(message)
  * so callers must use this from a single coroutine.
  */
 @SuppressLint("MissingPermission") // Callers check BLUETOOTH_CONNECT before creating a session.
-class GattSession(private val context: Context, private val device: BluetoothDevice) {
+class GattSession(
+    private val context: Context,
+    private val device: BluetoothDevice,
+    private val log: DiagnosticsLog? = null,
+) : BmsLink {
 
     private enum class OpType { DISCOVER, DESCRIPTOR_WRITE, WRITE, RSSI }
 
@@ -47,8 +52,10 @@ class GattSession(private val context: Context, private val device: BluetoothDev
     private val callback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
             if (status == BluetoothGatt.GATT_SUCCESS && newState == BluetoothProfile.STATE_CONNECTED) {
+                log?.info("gatt", "${device.address}: link up")
                 connected.complete(Unit)
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED || status != BluetoothGatt.GATT_SUCCESS) {
+                log?.warn("gatt", "${device.address}: ${describeStatus(status)} (status $status, state $newState)")
                 val ex = GattException(describeStatus(status))
                 closedCause = ex
                 connected.completeExceptionally(ex)
@@ -135,8 +142,10 @@ class GattSession(private val context: Context, private val device: BluetoothDev
         if (status != BluetoothGatt.GATT_SUCCESS) throw GattException("Could not subscribe to BMS ($status)")
     }
 
+    override suspend fun request(cmd: Int): JbdFrame? = request(cmd, DEFAULT_REQUEST_TIMEOUT_MS)
+
     /** Sends a read request and waits for the matching response, or null on timeout. */
-    suspend fun request(cmd: Int, timeoutMs: Long = 3_000): JbdFrame? {
+    suspend fun request(cmd: Int, timeoutMs: Long): JbdFrame? {
         while (frames.tryReceive().isSuccess) { /* drop stale frames */ }
         synchronized(assembler) { assembler.reset() }
         write(JbdProtocol.readCommand(cmd))
@@ -185,7 +194,7 @@ class GattSession(private val context: Context, private val device: BluetoothDev
     }
 
     /** Signal strength in dBm, or null if it couldn't be read. Never throws for a live link. */
-    suspend fun readRssi(): Int? {
+    override suspend fun readRssi(): Int? {
         closedCause?.let { throw it }
         return try {
             val status = runOp(OpType.RSSI, 2_000) { it.readRemoteRssi() }
@@ -213,7 +222,7 @@ class GattSession(private val context: Context, private val device: BluetoothDev
         }
     }
 
-    fun close() {
+    override fun close() {
         val g = gatt ?: return
         gatt = null
         frames.close()
@@ -228,6 +237,8 @@ class GattSession(private val context: Context, private val device: BluetoothDev
     }
 
     companion object {
+        const val DEFAULT_REQUEST_TIMEOUT_MS = 3_000L
+
         fun describeStatus(status: Int): String = when (status) {
             0 -> "Disconnected"
             8 -> "Signal lost (out of range?)"

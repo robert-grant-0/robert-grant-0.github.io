@@ -2,6 +2,7 @@ package io.github.robertgrant0.bmsmonitor.bms
 
 import android.content.Context
 import io.github.robertgrant0.bmsmonitor.data.AppSettings
+import io.github.robertgrant0.bmsmonitor.data.DiagnosticsLog
 import io.github.robertgrant0.bmsmonitor.data.SettingsRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -11,18 +12,21 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
 
 /**
  * Owns the connections to all three batteries and exposes their live state.
  * Lives for the whole process; the foreground service calls [start]/[stop].
  */
-class BmsManager(private val context: Context, private val settings: SettingsRepository) {
+class BmsManager(
+    context: Context,
+    private val settings: SettingsRepository,
+    private val log: DiagnosticsLog,
+) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private val setupLock = Mutex()
-    private val finder = DeviceFinder(context)
+    private val finder = DeviceFinder(context, log)
+    private val env: BmsEnvironment = AndroidBmsEnvironment(context, finder, log)
     private val connections = arrayOfNulls<BmsConnection>(BatteryState.SLOT_COUNT)
-    private val victron = VictronMonitor(context)
+    private val victron = VictronMonitor(context, log)
 
     /** Victron SmartShunt and solar charger readings. */
     val shunt: StateFlow<VictronDeviceState> = victron.shunt
@@ -44,6 +48,7 @@ class BmsManager(private val context: Context, private val settings: SettingsRep
     fun start() {
         if (_running.value) return
         _running.value = true
+        log.info("manager", "Monitoring started")
         finder.start(scope)
         victron.start(scope)
         apply(settings.current)
@@ -53,6 +58,7 @@ class BmsManager(private val context: Context, private val settings: SettingsRep
     fun stop() {
         if (!_running.value) return
         _running.value = false
+        log.info("manager", "Monitoring stopped")
         finder.stop()
         victron.stop()
         for (i in connections.indices) {
@@ -80,7 +86,10 @@ class BmsManager(private val context: Context, private val settings: SettingsRep
             }
             val current = _batteries.value[i]
             when {
-                current.address != address -> setState(i) { idleState(i, s, null) }
+                current.address != address -> {
+                    log.info("manager", "Battery ${i + 1} ($name): BMS ${address ?: "removed"}")
+                    setState(i) { idleState(i, s, null) }
+                }
                 current.name != name -> setState(i) { it.copy(name = name) }
             }
             if (_running.value && address != null && connections[i] == null) {
@@ -92,13 +101,12 @@ class BmsManager(private val context: Context, private val settings: SettingsRep
                     )
                 }
                 connections[i] = BmsConnection(
-                    context = context,
                     slot = i,
                     address = address,
-                    finder = finder,
-                    setupLock = setupLock,
+                    env = env,
                     pollIntervalMs = { settings.current.pollIntervalSec.coerceIn(1, 60) * 1000L },
                     sink = ::sink,
+                    log = log,
                 ).also { it.start(scope) }
             }
         }

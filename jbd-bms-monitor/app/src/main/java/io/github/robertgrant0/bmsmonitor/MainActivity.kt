@@ -60,6 +60,8 @@ import io.github.robertgrant0.bmsmonitor.data.AppSettings
 import io.github.robertgrant0.bmsmonitor.data.FlowUnit
 import io.github.robertgrant0.bmsmonitor.data.VictronKind
 import io.github.robertgrant0.bmsmonitor.service.BmsService
+import io.github.robertgrant0.bmsmonitor.service.DiagnosticsExport
+import io.github.robertgrant0.bmsmonitor.ui.DiagnosticsScreen
 import io.github.robertgrant0.bmsmonitor.ui.Banner
 import io.github.robertgrant0.bmsmonitor.ui.BmsTheme
 import io.github.robertgrant0.bmsmonitor.ui.DetailScreen
@@ -105,7 +107,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class Screen { HOME, DETAIL, SETTINGS }
+private enum class Screen { HOME, DETAIL, SETTINGS, DIAGNOSTICS }
 
 @Composable
 private fun AppRoot(app: BmsApp, settings: AppSettings) {
@@ -137,6 +139,7 @@ private fun AppRoot(app: BmsApp, settings: AppSettings) {
     val solar by app.manager.solar.collectAsStateWithLifecycle()
     val bankAlarms by app.bankAlarms.collectAsStateWithLifecycle()
     val history by app.history.samples.collectAsStateWithLifecycle()
+    val health by app.health.status.collectAsStateWithLifecycle()
     var victronScan by rememberSaveable { mutableStateOf<VictronKind?>(null) }
     val now by produceState(System.currentTimeMillis()) {
         while (true) {
@@ -152,7 +155,9 @@ private fun AppRoot(app: BmsApp, settings: AppSettings) {
     var detailSlot by rememberSaveable { mutableIntStateOf(0) }
     var scanSlot by rememberSaveable { mutableStateOf<Int?>(null) }
     var hideBatteryBanner by rememberSaveable { mutableStateOf(false) }
-    BackHandler(enabled = screen != Screen.HOME) { screen = Screen.HOME }
+    BackHandler(enabled = screen != Screen.HOME) {
+        screen = if (screen == Screen.DIAGNOSTICS) Screen.SETTINGS else Screen.HOME
+    }
 
     val unrestricted = remember(resumeTick) { isIgnoringBatteryOptimizations(context) }
     val fullScreenAllowed = remember(resumeTick) { canUseFullScreenAlarms(context) }
@@ -178,6 +183,20 @@ private fun AppRoot(app: BmsApp, settings: AppSettings) {
             onBack = { screen = Screen.HOME },
         )
 
+        Screen.DIAGNOSTICS -> DiagnosticsScreen(
+            batteries = batteries,
+            shunt = shunt,
+            solar = solar,
+            health = health,
+            log = app.diagnostics,
+            now = now,
+            versionName = remember { appVersion(context) },
+            onShare = { DiagnosticsExport.share(context) },
+            onCopy = { DiagnosticsExport.copy(context) },
+            onClear = { app.diagnostics.clear() },
+            onBack = { screen = Screen.SETTINGS },
+        )
+
         Screen.SETTINGS -> SettingsScreen(
             settings = settings,
             batteries = batteries,
@@ -192,6 +211,7 @@ private fun AppRoot(app: BmsApp, settings: AppSettings) {
             onAllowFullScreenAlarm = { requestFullScreenAlarms(context) },
             onTestSiren = { app.siren.test() },
             onSilenceSiren = { app.siren.silence() },
+            onOpenDiagnostics = { screen = Screen.DIAGNOSTICS },
             onBack = { screen = Screen.HOME },
         )
 
@@ -229,6 +249,17 @@ private fun AppRoot(app: BmsApp, settings: AppSettings) {
                         spacing,
                         actionLabel = "Start",
                         onAction = { app.settings.update { it.copy(monitoringEnabled = true) } },
+                    )
+                } else if (app.health.isStalled(now, true)) {
+                    Banner(
+                        "Monitoring has stalled – readings and alarms may be out of date.",
+                        pal.red,
+                        spacing,
+                        actionLabel = "Restart",
+                        onAction = {
+                            app.diagnostics.warn("ui", "Restart requested from the stall banner")
+                            BmsService.start(context)
+                        },
                     )
                 }
                 if (!unrestricted && !hideBatteryBanner) {

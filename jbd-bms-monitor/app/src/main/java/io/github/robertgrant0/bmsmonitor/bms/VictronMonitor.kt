@@ -9,6 +9,7 @@ import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.os.SystemClock
 import io.github.robertgrant0.bmsmonitor.Permissions
+import io.github.robertgrant0.bmsmonitor.data.DiagnosticsLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -27,8 +28,8 @@ data class VictronConfig(val address: String?, val name: String, val keyHex: Str
  * delivering results while the screen is off.
  */
 @SuppressLint("MissingPermission")
-class VictronMonitor(private val context: Context) {
-    private class Slot(val expectedRecord: Int) {
+class VictronMonitor(private val context: Context, private val log: DiagnosticsLog) {
+    private class Slot(val expectedRecord: Int, val label: String) {
         val state = MutableStateFlow(VictronDeviceState())
 
         @Volatile var address: String? = null
@@ -36,8 +37,8 @@ class VictronMonitor(private val context: Context) {
         @Volatile var key: ByteArray? = null
     }
 
-    private val shuntSlot = Slot(VictronProtocol.RECORD_BATTERY_MONITOR)
-    private val solarSlot = Slot(VictronProtocol.RECORD_SOLAR_CHARGER)
+    private val shuntSlot = Slot(VictronProtocol.RECORD_BATTERY_MONITOR, "SmartShunt")
+    private val solarSlot = Slot(VictronProtocol.RECORD_SOLAR_CHARGER, "Solar charger")
     val shunt: StateFlow<VictronDeviceState> = shuntSlot.state.asStateFlow()
     val solar: StateFlow<VictronDeviceState> = solarSlot.state.asStateFlow()
 
@@ -55,6 +56,7 @@ class VictronMonitor(private val context: Context) {
         }
 
         override fun onScanFailed(errorCode: Int) {
+            log.error("victron", "Victron scan failed (error $errorCode)")
             scanning = false
         }
     }
@@ -128,21 +130,32 @@ class VictronMonitor(private val context: Context) {
         }
         val data = r.scanRecord?.getManufacturerSpecificData(VictronProtocol.COMPANY_ID) ?: return
         val type = VictronProtocol.recordType(data) ?: return
+        val before = slot.state.value.status
         if (type != slot.expectedRecord) {
             // Some devices send several record kinds; only complain if this is all we ever get.
+            if (slot.state.value.reading == null && before != VictronStatus.WRONG_TYPE) {
+                log.warn("victron", "${slot.label}: device sends record type 0x${type.toString(16)}, not the expected kind")
+            }
             slot.state.update { if (it.reading == null) it.copy(status = VictronStatus.WRONG_TYPE) else it }
             return
         }
         val key = slot.key
         if (key == null) {
+            if (before != VictronStatus.NO_KEY) log.warn("victron", "${slot.label}: heard, but no encryption key entered")
             slot.state.update { it.copy(status = VictronStatus.NO_KEY) }
             return
         }
         when (val res = VictronProtocol.decode(data, key)) {
-            is VictronProtocol.Result.Ok -> slot.state.update {
-                it.copy(status = VictronStatus.RECEIVING, reading = res.reading, lastUpdate = System.currentTimeMillis())
+            is VictronProtocol.Result.Ok -> {
+                if (before != VictronStatus.RECEIVING) log.info("victron", "${slot.label}: receiving")
+                slot.state.update {
+                    it.copy(status = VictronStatus.RECEIVING, reading = res.reading, lastUpdate = System.currentTimeMillis())
+                }
             }
-            VictronProtocol.Result.WrongKey -> slot.state.update { it.copy(status = VictronStatus.WRONG_KEY) }
+            VictronProtocol.Result.WrongKey -> {
+                if (before != VictronStatus.WRONG_KEY) log.warn("victron", "${slot.label}: wrong encryption key")
+                slot.state.update { it.copy(status = VictronStatus.WRONG_KEY) }
+            }
             else -> Unit
         }
     }
@@ -169,6 +182,7 @@ class VictronMonitor(private val context: Context) {
             scanner.startScan(listOf(filter), settings, callback)
             scanning = true
             scanStartedAt = now
+            log.info("victron", "Listening for Victron broadcasts")
         } catch (_: Exception) {
             scanning = false
         }

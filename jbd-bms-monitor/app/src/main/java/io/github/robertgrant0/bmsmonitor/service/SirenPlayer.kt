@@ -33,7 +33,9 @@ class SirenPlayer(private val context: Context) {
         val audio = context.getSystemService(AudioManager::class.java)
         if (fullVolume && audio != null) {
             try {
-                savedAlarmVolume = audio.getStreamVolume(AudioManager.STREAM_ALARM)
+                val current = audio.getStreamVolume(AudioManager.STREAM_ALARM)
+                savedAlarmVolume = current
+                prefs(context).edit().putInt(KEY_SAVED_VOLUME, current).apply()
                 audio.setStreamVolume(
                     AudioManager.STREAM_ALARM,
                     audio.getStreamMaxVolume(AudioManager.STREAM_ALARM),
@@ -91,6 +93,7 @@ class SirenPlayer(private val context: Context) {
             }
         }
         savedAlarmVolume = null
+        prefs(context).edit().remove(KEY_SAVED_VOLUME).apply()
         try {
             vibrator()?.cancel()
         } catch (_: Exception) {
@@ -118,7 +121,26 @@ class SirenPlayer(private val context: Context) {
         }
     }
 
-    private companion object {
-        const val SAMPLE_RATE = 22_050
+    companion object {
+        private const val SAMPLE_RATE = 22_050
+        private const val PREFS = "siren"
+        private const val KEY_SAVED_VOLUME = "saved_alarm_volume"
+
+        private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+        /** If the app died while the siren had the alarm volume raised, put the volume back. */
+        fun restoreVolumeAfterCrash(context: Context): Boolean {
+            val p = prefs(context)
+            if (!p.contains(KEY_SAVED_VOLUME)) return false
+            val saved = p.getInt(KEY_SAVED_VOLUME, -1)
+            p.edit().remove(KEY_SAVED_VOLUME).apply()
+            if (saved < 0) return false
+            return try {
+                context.getSystemService(AudioManager::class.java)?.setStreamVolume(AudioManager.STREAM_ALARM, saved, 0)
+                true
+            } catch (_: Exception) {
+                false
+            }
+        }
     }
 }

@@ -1,39 +1,30 @@
 package io.github.robertgrant0.bmsmonitor.bms
 
-import android.annotation.SuppressLint
-import android.bluetooth.BluetoothDevice
-import android.bluetooth.BluetoothManager
-import android.content.Context
-import io.github.robertgrant0.bmsmonitor.Permissions
+import io.github.robertgrant0.bmsmonitor.data.DiagnosticsLog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * Keeps one battery connected for as long as it's running: connects, polls the BMS,
- * and reconnects with back-off whenever the link drops.
+ * Keeps one battery connected for as long as it's running: connects, polls the BMS, and
+ * reconnects with back-off whenever the link drops. Pure Kotlin: Android comes in through
+ * [BmsEnvironment], so this logic is covered by unit tests.
  */
-@SuppressLint("MissingPermission") // Checked via Permissions.canConnect before every attempt.
 class BmsConnection(
-    private val context: Context,
     val slot: Int,
     val address: String,
-    private val finder: DeviceFinder,
-    /** Shared by all batteries: Android's BLE stack misbehaves when several connections are set up at once. */
-    private val setupLock: Mutex,
+    private val env: BmsEnvironment,
     private val pollIntervalMs: () -> Long,
     private val sink: (slot: Int, address: String, transform: BatteryState.() -> BatteryState) -> Unit,
+    private val log: DiagnosticsLog,
 ) {
     private var job: Job? = null
+    private val tag = "battery${slot + 1}"
 
     fun start(scope: CoroutineScope) {
         if (job?.isActive == true) return
@@ -53,41 +44,41 @@ class BmsConnection(
     private suspend fun runForever() {
         var attempt = 0
         var lastReason = ""
+        var blockedBy: LinkState? = null
         while (true) {
-            if (!Permissions.canConnect(context)) {
-                publish { copy(link = LinkState.NO_PERMISSION, statusText = "Bluetooth permission needed", rssi = null) }
-                delay(3_000)
+            val block = when {
+                !env.canConnect() -> LinkState.NO_PERMISSION
+                !env.bluetoothEnabled() -> LinkState.BLUETOOTH_OFF
+                else -> null
+            }
+            if (block != null) {
+                val text = if (block == LinkState.NO_PERMISSION) "Bluetooth permission needed" else "Bluetooth is off"
+                if (blockedBy != block) {
+                    log.warn(tag, text)
+                    blockedBy = block
+                }
+                publish { copy(link = block, statusText = text, rssi = null) }
+                delay(BLOCKED_RETRY_MS)
                 continue
             }
-            val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter
-            if (adapter == null || !adapter.isEnabled) {
-                publish { copy(link = LinkState.BLUETOOTH_OFF, statusText = "Bluetooth is off", rssi = null) }
-                delay(3_000)
-                continue
-            }
+            blockedBy = null
 
             if (attempt > 0) {
                 // Wait for the BMS to show up in the background scan, but not forever in
                 // case scanning isn't possible (e.g. location services off on old Android).
-                val waitMs = (10_000L * attempt).coerceAtMost(60_000L)
+                val waitMs = (ADVERT_WAIT_STEP_MS * attempt).coerceAtMost(ADVERT_WAIT_MAX_MS)
                 publish { copy(link = LinkState.DISCONNECTED, statusText = "$lastReason – searching…") }
-                finder.setWaiting(address, true)
-                try {
-                    withTimeoutOrNull(waitMs) { finder.sightings.first { it.address == address } }
-                } finally {
-                    finder.setWaiting(address, false)
-                }
+                val seen = env.awaitAdvertisement(address, waitMs)
+                log.info(tag, if (seen) "Seen advertising" else "Not seen for ${waitMs / 1000} s, trying anyway")
             }
 
             publish {
-                copy(
-                    link = LinkState.CONNECTING,
-                    statusText = if (attempt == 0) "Connecting…" else "Reconnecting…",
-                )
+                copy(link = LinkState.CONNECTING, statusText = if (attempt == 0) "Connecting…" else "Reconnecting…")
             }
+            log.info(tag, "Connecting to $address (attempt ${attempt + 1})")
             var gotData = false
             lastReason = try {
-                runSession(adapter.getRemoteDevice(address)) { gotData = true }
+                runSession { gotData = true }
                 "Disconnected"
             } catch (e: TimeoutCancellationException) {
                 "Timed out"
@@ -96,8 +87,9 @@ class BmsConnection(
             } catch (e: Exception) {
                 e.message ?: e.javaClass.simpleName
             }
+            log.warn(tag, "Link lost: $lastReason" + if (gotData) "" else " (no data this session)")
             attempt = if (gotData) 1 else attempt + 1
-            val now = System.currentTimeMillis()
+            val now = env.now()
             publish {
                 copy(
                     link = LinkState.DISCONNECTED,
@@ -107,47 +99,47 @@ class BmsConnection(
                     reconnectCount = if (gotData) reconnectCount + 1 else reconnectCount,
                 )
             }
-            delay(if (gotData) 1_000L else 3_000L)
+            delay(if (gotData) RETRY_AFTER_DATA_MS else RETRY_AFTER_FAILURE_MS)
         }
     }
 
-    private suspend fun runSession(device: BluetoothDevice, onData: () -> Unit) {
-        val session = GattSession(context, device)
+    private suspend fun runSession(onData: () -> Unit) {
+        val link = env.open(address)
         try {
-            setupLock.withLock {
-                session.connect(CONNECT_TIMEOUT_MS)
-                delay(500) // Some BLE modules need a moment before service discovery.
-                session.discoverServices()
-                session.enableNotifications()
-            }
+            log.info(tag, "Connected")
             publish { copy(link = LinkState.CONNECTED, statusText = "Connected", disconnectedSince = 0L) }
 
-            session.request(JbdProtocol.CMD_HARDWARE_VERSION)
+            link.request(JbdProtocol.CMD_HARDWARE_VERSION)
                 ?.takeIf { it.ok }
                 ?.let { JbdProtocol.parseHardwareVersion(it.payload) }
                 ?.takeIf { it.isNotEmpty() }
-                ?.let { hw -> publish { copy(hardwareVersion = hw) } }
+                ?.let { hw ->
+                    log.info(tag, "Hardware $hw")
+                    publish { copy(hardwareVersion = hw) }
+                }
 
             var misses = 0
             var polls = 0
             while (true) {
-                val basic = session.request(JbdProtocol.CMD_BASIC_INFO)
+                val basic = link.request(JbdProtocol.CMD_BASIC_INFO)
                     ?.takeIf { it.ok }
                     ?.let { JbdProtocol.parseBasicInfo(it.payload) }
-                val cells = session.request(JbdProtocol.CMD_CELL_VOLTAGES)
+                val cells = link.request(JbdProtocol.CMD_CELL_VOLTAGES)
                     ?.takeIf { it.ok }
                     ?.let { JbdProtocol.parseCellVoltages(it.payload) }
-                val rssi = if (polls % RSSI_EVERY_N_POLLS == 0) session.readRssi() else null
+                val rssi = if (polls % RSSI_EVERY_N_POLLS == 0) link.readRssi() else null
                 polls++
 
                 if (basic == null && cells == null) {
                     misses++
-                    if (misses >= MAX_MISSED_POLLS) throw GattException("BMS stopped responding")
+                    log.warn(tag, "No reply from BMS ($misses/$MAX_MISSED_POLLS)")
+                    if (misses >= MAX_MISSED_POLLS) throw BmsException("BMS stopped responding")
                     publish { copy(statusText = "Waiting for BMS…") }
                 } else {
+                    if (misses > 0) log.info(tag, "BMS replying again")
                     misses = 0
                     onData()
-                    val now = System.currentTimeMillis()
+                    val now = env.now()
                     publish {
                         copy(
                             link = LinkState.CONNECTED,
@@ -163,13 +155,17 @@ class BmsConnection(
                 delay(pollIntervalMs())
             }
         } finally {
-            session.close()
+            link.close()
         }
     }
 
-    private companion object {
-        const val CONNECT_TIMEOUT_MS = 15_000L
+    companion object {
         const val MAX_MISSED_POLLS = 5
         const val RSSI_EVERY_N_POLLS = 5
+        const val BLOCKED_RETRY_MS = 3_000L
+        const val ADVERT_WAIT_STEP_MS = 10_000L
+        const val ADVERT_WAIT_MAX_MS = 60_000L
+        const val RETRY_AFTER_DATA_MS = 1_000L
+        const val RETRY_AFTER_FAILURE_MS = 3_000L
     }
 }

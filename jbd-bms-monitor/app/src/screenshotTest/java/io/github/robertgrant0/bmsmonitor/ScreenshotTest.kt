@@ -21,6 +21,8 @@ import io.github.robertgrant0.bmsmonitor.bms.SustainTracker
 import io.github.robertgrant0.bmsmonitor.bms.VictronDeviceState
 import io.github.robertgrant0.bmsmonitor.bms.VictronStatus
 import io.github.robertgrant0.bmsmonitor.data.AppSettings
+import io.github.robertgrant0.bmsmonitor.data.DiagnosticsLog
+import io.github.robertgrant0.bmsmonitor.data.MonitoringHealth
 import io.github.robertgrant0.bmsmonitor.data.FlowUnit
 import io.github.robertgrant0.bmsmonitor.data.PowerSample
 import io.github.robertgrant0.bmsmonitor.data.SlotConfig
@@ -29,6 +31,7 @@ import io.github.robertgrant0.bmsmonitor.data.VictronSlot
 import io.github.robertgrant0.bmsmonitor.ui.AlarmScreen
 import io.github.robertgrant0.bmsmonitor.ui.BmsTheme
 import io.github.robertgrant0.bmsmonitor.ui.DetailScreen
+import io.github.robertgrant0.bmsmonitor.ui.DiagnosticsScreen
 import io.github.robertgrant0.bmsmonitor.ui.HomeScreen
 import io.github.robertgrant0.bmsmonitor.ui.InterFonts
 import io.github.robertgrant0.bmsmonitor.ui.SettingsScreen
@@ -203,6 +206,38 @@ class ScreenshotTest {
             onAllowFullScreenAlarm = {},
             onTestSiren = {},
             onSilenceSiren = {},
+            onOpenDiagnostics = {},
+            onBack = {},
+        )
+    }
+
+    @Test
+    @Config(qualifiers = "w1280dp-h800dp-land-xhdpi")
+    fun diagnosticsTablet() = capture("11-diagnostics") {
+        val log = DiagnosticsLog(clock = { now - 95_000 })
+        log.info("app", "App started")
+        log.info("service", "Monitoring started")
+        log.info("scan", "Background scan for 3 BMS address(es)")
+        log.info("battery1", "Connecting to A4:C1:38:5E:10:01 (attempt 1)")
+        log.info("battery1", "Connected")
+        log.info("battery1", "Hardware 4.1")
+        log.warn("battery2", "Link lost: Signal lost (out of range?)")
+        log.info("battery2", "Seen advertising")
+        log.info("battery2", "Connected")
+        log.info("victron", "SmartShunt: receiving")
+        log.warn("alarm", "House 3: Cell imbalance: 112 mV")
+        log.info("watchdog", "OK (last check 4s ago)")
+        DiagnosticsScreen(
+            batteries = batteries,
+            shunt = shunt,
+            solar = solar,
+            health = MonitoringHealth.Status(serviceRunning = true, lastTick = now - 4_000, startedAt = now - 100_000),
+            log = log,
+            now = now,
+            versionName = "1.0",
+            onShare = {},
+            onCopy = {},
+            onClear = {},
             onBack = {},
         )
     }
