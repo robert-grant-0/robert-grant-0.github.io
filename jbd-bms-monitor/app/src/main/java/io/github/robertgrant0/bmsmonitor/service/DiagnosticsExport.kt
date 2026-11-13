@@ -9,6 +9,7 @@ import android.os.PowerManager
 import androidx.core.content.FileProvider
 import io.github.robertgrant0.bmsmonitor.bms.Alarms
 import io.github.robertgrant0.bmsmonitor.bms.VictronDeviceState
+import io.github.robertgrant0.bmsmonitor.bms.label
 import io.github.robertgrant0.bmsmonitor.bmsApp
 import java.io.File
 import java.text.SimpleDateFormat
@@ -43,15 +44,20 @@ object DiagnosticsExport {
         header += "Batteries:"
         for (b in app.manager.batteries.value) {
             val d = b.basic
-            header += "  ${b.slot + 1}. ${b.name}: ${b.address ?: "no BMS"} · ${Notifications.linkLabel(b.link)} · " +
+            header += "  ${b.slot + 1}. ${b.name}: ${b.address ?: "no BMS"} · ${b.link.label} · " +
                 "last read ${ago(b.lastUpdate)} · reconnects ${b.reconnectCount} · rssi ${b.rssi ?: "-"} · " +
                 "hw ${b.hardwareVersion ?: "-"}" +
-                if (d != null) " · ${d.stateOfCharge}% ${d.totalVoltage} V ${d.current} A cells ${b.cells.size}" else ""
+                if (d != null) {
+                    String.format(Locale.US, " · %d%% %.2f V %+.2f A · %d cells", d.stateOfCharge, d.totalVoltage, d.current, b.cells.size)
+                } else {
+                    ""
+                }
         }
         header += "Victron:"
         header += "  SmartShunt: ${victronLine(app.manager.shunt.value, ::ago)}"
         header += "  Solar charger: ${victronLine(app.manager.solar.value, ::ago)}"
-        return app.diagnostics.export(header)
+        // The on-disk history includes earlier runs; fall back to memory if it is missing.
+        return app.diagnostics.export(header, app.logFile.readAll().ifBlank { null })
     }
 
     private fun victronLine(d: VictronDeviceState, ago: (Long) -> String): String =

@@ -15,6 +15,18 @@ enum class LinkState {
     DISCONNECTED,
 }
 
+/** Short human-readable name for a link state. */
+val LinkState.label: String
+    get() = when (this) {
+        LinkState.NOT_CONFIGURED -> "Not set up"
+        LinkState.STOPPED -> "Monitoring stopped"
+        LinkState.NO_PERMISSION -> "Bluetooth permission needed"
+        LinkState.BLUETOOTH_OFF -> "Bluetooth is off"
+        LinkState.CONNECTING -> "Connecting…"
+        LinkState.CONNECTED -> "Connected"
+        LinkState.DISCONNECTED -> "Reconnecting…"
+    }
+
 data class BatteryState(
     val slot: Int,
     val name: String,

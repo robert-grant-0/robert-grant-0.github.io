@@ -26,15 +26,22 @@ class DiagnosticsLog(
     /** Bumps on every change; collect it to know when to take a fresh [snapshot]. */
     val revision: StateFlow<Int> = _revision.asStateFlow()
 
+    /** Optional extra destination for every entry, e.g. a file that outlives the process. */
+    @Volatile
+    var sink: ((LogEntry) -> Unit)? = null
+
     fun info(tag: String, message: String) = add(LogLevel.INFO, tag, message)
     fun warn(tag: String, message: String) = add(LogLevel.WARN, tag, message)
     fun error(tag: String, message: String) = add(LogLevel.ERROR, tag, message)
 
-    @Synchronized
     fun add(level: LogLevel, tag: String, message: String) {
-        entries.addLast(LogEntry(clock(), level, tag, message))
-        while (entries.size > capacity) entries.removeFirst()
-        _revision.value = _revision.value + 1
+        val entry = LogEntry(clock(), level, tag, message)
+        synchronized(this) {
+            entries.addLast(entry)
+            while (entries.size > capacity) entries.removeFirst()
+            _revision.value = _revision.value + 1
+        }
+        sink?.invoke(entry)
     }
 
     /** Oldest first. */
@@ -47,18 +54,24 @@ class DiagnosticsLog(
         _revision.value = _revision.value + 1
     }
 
-    /** Plain-text export: [header] lines, a blank line, then one line per entry, oldest first. */
-    fun export(header: List<String>): String {
-        val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
+    /**
+     * Plain-text export: [header] lines, a blank line, then [body] if given (e.g. the on-disk
+     * history), otherwise one line per in-memory entry, oldest first.
+     */
+    fun export(header: List<String>, body: String? = null): String {
         val sb = StringBuilder()
         for (h in header) sb.append(h).append('\n')
         sb.append('\n')
-        for (e in snapshot()) {
-            sb.append(fmt.format(Date(e.time))).append(' ')
-                .append(e.level.name.padEnd(5)).append(' ')
-                .append(e.tag.padEnd(10)).append(' ')
-                .append(e.message).append('\n')
-        }
+        if (body != null) sb.append(body) else for (e in snapshot()) sb.append(format(e)).append('\n')
         return sb.toString()
+    }
+
+    companion object {
+        private val lineFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
+
+        /** One export line: timestamp, level, tag, message. */
+        fun format(e: LogEntry): String = synchronized(lineFormat) {
+            "${lineFormat.format(Date(e.time))} ${e.level.name.padEnd(5)} ${e.tag.padEnd(10)} ${e.message}"
+        }
     }
 }

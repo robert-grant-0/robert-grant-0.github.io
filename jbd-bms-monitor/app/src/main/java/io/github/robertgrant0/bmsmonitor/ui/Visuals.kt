@@ -517,13 +517,3 @@ fun RadarPulse(color: Color, modifier: Modifier = Modifier, size: Dp = 44.dp, ic
         }
     }
 }
-
-@Composable
-fun Gap(size: Dp) {
-    Spacer(Modifier.size(size))
-}
-
-@Composable
-fun HGap(size: Dp) {
-    Spacer(Modifier.width(size))
-}

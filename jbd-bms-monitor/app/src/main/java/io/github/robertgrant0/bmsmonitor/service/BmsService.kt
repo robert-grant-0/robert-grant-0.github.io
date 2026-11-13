@@ -74,7 +74,9 @@ class BmsService : Service() {
             this,
             bluetoothReceiver,
             IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED),
-            ContextCompat.RECEIVER_NOT_EXPORTED,
+            // A protected system broadcast (only the system can send it), so exporting is safe
+            // and guarantees delivery on Android 14+.
+            ContextCompat.RECEIVER_EXPORTED,
         )
     }
 

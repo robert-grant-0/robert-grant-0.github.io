@@ -31,11 +31,11 @@ The app reads a Victron **SmartShunt** and a **SmartSolar MPPT** from their Blue
 - **Other (DC-DC − loads):** the shunt's current minus solar. With the engine running, this mostly shows what the DC-DC chargers add, minus whatever loads are on. The DC-DC chargers themselves can't be read directly.
 - **Current sharing (parallel batteries):** each battery shows its share of the bank current. A warning appears when one battery carries noticeably more or less than the others for 2 minutes, which is often a loose terminal, a cable problem or a weak battery. A second warning fires if the shunt and the three BMS totals disagree for a minute.
 
-Setup: **Settings → Victron devices → Choose**, then enter the device's encryption key. In VictronConnect, open the device, then ⚙ Settings → ⋮ → Product info → Instant readout details → Show. The key is stored only on the tablet, and the app has backups turned off so it isn't copied to the cloud.
+Setup: **Settings → Victron devices → Choose**, then enter the device's encryption key. In VictronConnect, open the device, then ⚙ Settings → ⋮ → Product info → Instant readout details → Show. The key is stored only on the tablet, sealed with the Android Keystore, and the app has backups turned off so it isn't copied to the cloud.
 
 ## If something goes wrong
 
-- **Diagnostics** (Settings → Support → Diagnostics): a log of what the app has been doing (connections, drops, alarms, service events), with each device's status and when it was last heard from. **Share** sends it as a text file; attach it when reporting a problem.
+- **Diagnostics** (Settings → Support → Diagnostics): a log of what the app has been doing (connections, drops, alarms, service events), with each device's status and when it was last heard from. Recent history is kept on disk too, so it survives the app being killed. **Share** sends it as a text file; attach it when reporting a problem.
 - **Watchdog:** a system alarm checks every five minutes that the monitoring service is alive and its loop is still running. If Android has killed it, or it has stalled, the watchdog restarts it; if the restart is refused, you get a "Battery monitoring has stopped" notification and the home screen shows a red banner with a Restart button.
 
 ## Siren

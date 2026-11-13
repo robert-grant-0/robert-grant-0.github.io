@@ -34,6 +34,18 @@ class DiagnosticsTest {
     }
 
     @Test
+    fun sinkReceivesEveryEntryInExportFormat() {
+        val log = DiagnosticsLog(clock = { 0L })
+        val seen = ArrayList<String>()
+        log.sink = { seen += DiagnosticsLog.format(it) }
+        log.error("watchdog", "Monitoring stopped")
+        assertEquals(1, seen.size)
+        assertTrue(seen[0], seen[0].endsWith(" ERROR watchdog   Monitoring stopped"))
+        assertEquals("H\n\n" + seen[0] + "\n", log.export(listOf("H")))
+        assertEquals("H\n\nbody", log.export(listOf("H"), "body"))
+    }
+
+    @Test
     fun healthFlagsAStall() {
         var t = 1_000_000L
         val health = MonitoringHealth(clock = { t })

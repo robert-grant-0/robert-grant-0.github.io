@@ -43,9 +43,4 @@ class PowerHistory(
         while (buffer.isNotEmpty() && time - buffer.first().time > keepMs) buffer.removeFirst()
         _samples.value = buffer.toList()
     }
-
-    companion object {
-        fun window(samples: List<PowerSample>, now: Long, windowMs: Long): List<PowerSample> =
-            samples.filter { now - it.time <= windowMs }
-    }
 }

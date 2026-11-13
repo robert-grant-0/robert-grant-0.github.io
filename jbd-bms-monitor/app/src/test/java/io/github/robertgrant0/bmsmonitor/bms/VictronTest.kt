@@ -116,18 +116,4 @@ class VictronTest {
         val alarms = BankAnalysis.evaluate(bank(later), shunt(later), VictronDeviceState(), t, later, tracker)
         assertEquals(listOf("shunt_mismatch"), alarms.map { it.key })
     }
-
-    @Test
-    fun otherCurrentIsShuntMinusSolar() {
-        val now = 5_000L
-        val shunt = VictronDeviceState(
-            address = "A", status = VictronStatus.RECEIVING, lastUpdate = now,
-            reading = ShuntReading(null, 13.4, 0, 3, 35.0, 0.0, 80.0),
-        )
-        val solar = VictronDeviceState(
-            address = "B", status = VictronStatus.RECEIVING, lastUpdate = now,
-            reading = SolarReading(3, 0, 13.4, 20.0, 1000, 280, null),
-        )
-        assertEquals(15.0, BankAnalysis.otherCurrent(shunt, solar, now)!!, 1e-9)
-    }
 }

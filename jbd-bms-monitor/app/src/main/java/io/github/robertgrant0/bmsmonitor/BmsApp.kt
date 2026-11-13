@@ -6,6 +6,7 @@ import io.github.robertgrant0.bmsmonitor.bms.Alarm
 import io.github.robertgrant0.bmsmonitor.bms.BmsManager
 import io.github.robertgrant0.bmsmonitor.bms.SirenLatch
 import io.github.robertgrant0.bmsmonitor.data.DiagnosticsLog
+import io.github.robertgrant0.bmsmonitor.data.FileLogSink
 import io.github.robertgrant0.bmsmonitor.data.MonitoringHealth
 import io.github.robertgrant0.bmsmonitor.data.PowerHistory
 import io.github.robertgrant0.bmsmonitor.data.SettingsRepository
@@ -16,6 +17,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
+import java.io.File
 
 class BmsApp : Application() {
     lateinit var settings: SettingsRepository
@@ -25,6 +27,9 @@ class BmsApp : Application() {
 
     /** What the app has been doing, for the Diagnostics screen. */
     val diagnostics = DiagnosticsLog()
+
+    /** The same history on disk, so it survives the process being killed. */
+    val logFile: FileLogSink by lazy { FileLogSink(File(cacheDir, "diagnostics/log.txt")) }
 
     /** Heartbeat of the monitoring service, watched by the watchdog and the home screen. */
     val health = MonitoringHealth()
@@ -44,6 +49,7 @@ class BmsApp : Application() {
         settings = SettingsRepository(this)
         manager = BmsManager(this, settings, diagnostics)
         Notifications.createChannels(this)
+        diagnostics.sink = logFile
         diagnostics.info("app", "App started")
         if (SirenPlayer.restoreVolumeAfterCrash(this)) {
             diagnostics.warn("siren", "Restored the alarm volume left raised by a previous run")

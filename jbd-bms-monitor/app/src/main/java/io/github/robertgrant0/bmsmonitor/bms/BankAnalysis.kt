@@ -38,13 +38,6 @@ object BankAnalysis {
         return batteries.map { b -> if (b.isConfigured) b.basic!!.current / total else null }
     }
 
-    /** "Other (DC-DC − loads)": bank current not explained by solar. */
-    fun otherCurrent(shunt: VictronDeviceState, solar: VictronDeviceState, now: Long): Double? {
-        val i = shunt.shunt?.current?.takeIf { shunt.isLive(now) } ?: return null
-        val s = solar.solar?.batteryCurrent?.takeIf { solar.isLive(now) } ?: return null
-        return i - s
-    }
-
     fun evaluate(
         batteries: List<BatteryState>,
         shunt: VictronDeviceState,

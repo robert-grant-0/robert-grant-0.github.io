@@ -48,7 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.robertgrant0.bmsmonitor.bms.AlarmThresholds
 import io.github.robertgrant0.bmsmonitor.bms.BatteryState
-import io.github.robertgrant0.bmsmonitor.bms.LinkState
+import io.github.robertgrant0.bmsmonitor.bms.label
 import io.github.robertgrant0.bmsmonitor.bms.VictronDeviceState
 import io.github.robertgrant0.bmsmonitor.bms.VictronProtocol
 import io.github.robertgrant0.bmsmonitor.bms.VictronStatus
@@ -112,7 +112,7 @@ fun SettingsScreen(
                                         if (slot.address == null) {
                                             "No BMS chosen"
                                         } else {
-                                            listOfNotNull(slot.deviceName, slot.address, linkText(batteries[i].link)).joinToString(" · ")
+                                            listOfNotNull(slot.deviceName, slot.address, batteries[i].link.label).joinToString(" · ")
                                         },
                                         style = Type.text(12.5.sp),
                                         color = p.t2,
@@ -316,16 +316,6 @@ fun SettingsScreen(
             }
         }
     }
-}
-
-private fun linkText(link: LinkState): String = when (link) {
-    LinkState.CONNECTED -> "connected"
-    LinkState.CONNECTING -> "connecting…"
-    LinkState.DISCONNECTED -> "reconnecting…"
-    LinkState.BLUETOOTH_OFF -> "Bluetooth off"
-    LinkState.NO_PERMISSION -> "no permission"
-    LinkState.STOPPED -> "monitoring stopped"
-    LinkState.NOT_CONFIGURED -> ""
 }
 
 @Composable

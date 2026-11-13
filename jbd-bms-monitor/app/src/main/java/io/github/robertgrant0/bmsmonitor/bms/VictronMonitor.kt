@@ -198,7 +198,7 @@ class VictronMonitor(private val context: Context, private val log: DiagnosticsL
     }
 
     private companion object {
-        const val SCAN_START_GAP_MS = 7_000L
+        const val SCAN_START_GAP_MS = 13_000L
         const val SCAN_MAX_AGE_MS = 25 * 60_000L
     }
 }

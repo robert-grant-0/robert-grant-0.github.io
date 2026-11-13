@@ -193,7 +193,10 @@ private fun AppRoot(app: BmsApp, settings: AppSettings) {
             versionName = remember { appVersion(context) },
             onShare = { DiagnosticsExport.share(context) },
             onCopy = { DiagnosticsExport.copy(context) },
-            onClear = { app.diagnostics.clear() },
+            onClear = {
+                app.diagnostics.clear()
+                app.logFile.clear()
+            },
             onBack = { screen = Screen.SETTINGS },
         )
 

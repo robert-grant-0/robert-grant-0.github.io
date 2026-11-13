@@ -15,7 +15,7 @@ import io.github.robertgrant0.bmsmonitor.Permissions
 import io.github.robertgrant0.bmsmonitor.R
 import io.github.robertgrant0.bmsmonitor.bms.Alarm
 import io.github.robertgrant0.bmsmonitor.bms.BatteryState
-import io.github.robertgrant0.bmsmonitor.bms.LinkState
+import io.github.robertgrant0.bmsmonitor.bms.label
 import io.github.robertgrant0.bmsmonitor.bms.Severity
 import java.util.Locale
 
@@ -155,7 +155,7 @@ object Notifications {
                     Locale.US, "%s: %d%%  %.2f V  %+.2f A", b.name, d.stateOfCharge, d.totalVoltage, d.current,
                 )
             } else {
-                "${b.name}: ${b.statusText.ifBlank { linkLabel(b.link) }}"
+                "${b.name}: ${b.statusText.ifBlank { b.link.label }}"
             }
         }
 
@@ -200,15 +200,5 @@ object Notifications {
             NotificationManagerCompat.from(ctx).notify(ID_ALARM_BASE + id, notification)
         } catch (_: SecurityException) {
         }
-    }
-
-    fun linkLabel(link: LinkState): String = when (link) {
-        LinkState.NOT_CONFIGURED -> "Not set up"
-        LinkState.STOPPED -> "Monitoring stopped"
-        LinkState.NO_PERMISSION -> "Bluetooth permission needed"
-        LinkState.BLUETOOTH_OFF -> "Bluetooth is off"
-        LinkState.CONNECTING -> "Connecting…"
-        LinkState.CONNECTED -> "Connected"
-        LinkState.DISCONNECTED -> "Reconnecting…"
     }
 }

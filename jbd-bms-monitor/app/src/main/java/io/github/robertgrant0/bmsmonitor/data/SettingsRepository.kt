@@ -34,8 +34,24 @@ class SettingsRepository(context: Context) {
     private fun loadVictron(kind: VictronKind) = VictronSlot(
         address = prefs.getString("${kind.prefKey}_address", null),
         deviceName = prefs.getString("${kind.prefKey}_device", null),
-        key = prefs.getString("${kind.prefKey}_key", null) ?: "",
+        key = loadKey(kind),
     )
+
+    /** Keys are sealed with the Android Keystore; older installs stored them in plain text. */
+    private fun loadKey(kind: VictronKind): String {
+        prefs.getString("${kind.prefKey}_key_enc", null)?.let { sealed -> KeyVault.open(sealed)?.let { return it } }
+        return prefs.getString("${kind.prefKey}_key", null) ?: ""
+    }
+
+    // Sealing costs a Keystore round-trip, so reuse the result until the key changes.
+    private val sealedKeys = HashMap<VictronKind, Pair<String, String?>>()
+
+    private fun sealKey(kind: VictronKind, plain: String): String? {
+        sealedKeys[kind]?.let { (p, sealed) -> if (p == plain) return sealed }
+        val sealed = if (plain.isBlank()) null else KeyVault.seal(plain)
+        sealedKeys[kind] = plain to sealed
+        return sealed
+    }
 
     private fun load(): AppSettings {
         val d = AppSettings()
@@ -114,7 +130,15 @@ class SettingsRepository(context: Context) {
                 val v = s.victron(kind)
                 putString("${kind.prefKey}_address", v.address)
                 putString("${kind.prefKey}_device", v.deviceName)
-                putString("${kind.prefKey}_key", v.key)
+                val sealed = sealKey(kind, v.key)
+                if (sealed != null) {
+                    putString("${kind.prefKey}_key_enc", sealed)
+                    remove("${kind.prefKey}_key")
+                } else {
+                    // Blank key, or no usable Keystore on this device: keep it in plain text.
+                    putString("${kind.prefKey}_key", v.key)
+                    remove("${kind.prefKey}_key_enc")
+                }
             }
             putString("theme", s.theme.name)
             putBoolean("animations", s.animations)

@@ -28,7 +28,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.robertgrant0.bmsmonitor.bms.Alarms
 import io.github.robertgrant0.bmsmonitor.bms.BatteryState
-import io.github.robertgrant0.bmsmonitor.bms.LinkState
+import io.github.robertgrant0.bmsmonitor.bms.label
 import io.github.robertgrant0.bmsmonitor.bms.VictronDeviceState
 import io.github.robertgrant0.bmsmonitor.data.DiagnosticsLog
 import io.github.robertgrant0.bmsmonitor.data.LogEntry
@@ -102,7 +102,7 @@ fun DiagnosticsScreen(
                     for (b in batteries) {
                         val detail = when {
                             !b.isConfigured -> "No BMS chosen"
-                            else -> "${linkText(b.link)} · last read ${ago(b.lastUpdate)} · ${b.reconnectCount} reconnects" +
+                            else -> "${b.link.label} · last read ${ago(b.lastUpdate)} · ${b.reconnectCount} reconnects" +
                                 (b.rssi?.let { " · $it dBm" } ?: "")
                         }
                         SettingRow(b.name, subtitle = "${b.address ?: ""}${if (b.address != null) " · " else ""}$detail")
@@ -119,7 +119,7 @@ fun DiagnosticsScreen(
 
                 SettingsGroup(
                     "Log",
-                    footer = "Newest first. The last ${log.capacity} events are kept in memory and cleared when the app is closed.",
+                    footer = "Newest first. Recent history is also kept on disk, survives the app being closed, and goes out with Share.",
                 ) {
                     Row(
                         Modifier
@@ -146,16 +146,6 @@ fun DiagnosticsScreen(
             }
         }
     }
-}
-
-private fun linkText(link: LinkState): String = when (link) {
-    LinkState.CONNECTED -> "connected"
-    LinkState.CONNECTING -> "connecting"
-    LinkState.DISCONNECTED -> "reconnecting"
-    LinkState.BLUETOOTH_OFF -> "Bluetooth off"
-    LinkState.NO_PERMISSION -> "no permission"
-    LinkState.STOPPED -> "stopped"
-    LinkState.NOT_CONFIGURED -> "not set up"
 }
 
 @Composable
